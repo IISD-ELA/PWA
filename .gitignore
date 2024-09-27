@@ -1,0 +1,12 @@
+*.cpg
+*.dbf
+*.prj
+*.shp
+*.shx
+*.nc
+Cypress_HEC-HMS
+.Rproj.user
+PWA.gdb
+.Rhistory
+Data/Raw
+*.Rproj
