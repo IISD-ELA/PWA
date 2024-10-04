@@ -10,3 +10,5 @@ PWA.gdb
 .Rhistory
 Data/Raw
 *.Rproj
+*.tif*
+*.tfw
