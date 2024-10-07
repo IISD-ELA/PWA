@@ -1,10 +1,15 @@
 #pour points generated in ArcGIS Pro
-#DEM sourced from Manitoba 
+#DEM sourced from Manitoba Land Initiative
 
 #ch_wbt_catchment_onestep with CR data
 
-wd <- ("C:/Users/emilito/Documents/PWA/CR_delineation/100m_DEM")
+wd <- ("C:/Users/emilito/Documents/PWA/CR_delineation")
 setwd(wd)
+getwd()
+
+install.packages('here')
+library(here)
+?here
 
 require(sf)
 pourpoint_CR <- read_sf(dsn = wd, layer = "pp_CR_test")
@@ -23,7 +28,7 @@ if (check_whitebox_binary()){
   pourpoints <- pourpoint_CR
   # write pourpoints to file
   st_write(pourpoints, pourpoint_file_CR)
-  catchment <- ch_wbt_catchment_onestep(wd = wd, in_dem = "C:/Users/emilito/Documents/PWA/CR_delineation/100m_DEM/Pembina_LiDAR_DEM_Clip_100m.tif",
+  catchment <- ch_wbt_catchment_onestep(wd = wd, in_dem = here("CR_delineation/Pembina_LiDAR_DEM_Clip_50m.tif"),
                                         pp_sf = pourpoints, sink_method = "fill", threshold = 1, snap_dist = 10)
 } else {
   message("Examples not run as Whitebox executable not found")
