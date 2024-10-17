@@ -8,11 +8,13 @@ install.packages('tidyverse')
 install.packages('tibbletime')
 install.packages('lubridate')
 install.packages('reshape2')
+install.packages('hydroGOF')
 library(tidyverse)
 library(tibbletime)
 library(lubridate)
 library(ggplot2)
 library(reshape2)
+library(hydroGOF)
 
 # convert Date column into date-time class (POSIXct)
 data$Date <- ymd_hm(data$Date)
@@ -46,10 +48,14 @@ ggplot(df_by_year_lf, aes(x=year, y=value, col = variable))+
   scale_x_continuous(name = "Year", breaks = waiver(), n.breaks = 13)+
   labs(x="Year", y="Flow")
 
+# filter data to spring 2006
+spring_2006 <- filter_time(data, time_formula = '2006-03-01' ~ '2006-05-31')
+View(spring_2006)
 
+# calculate percent bias
+pbias(sim = data$FLOW, obs = data$FLOW.OBSERVED)
+pbias(sim = spring_2006$FLOW, obs = spring_2006$FLOW.OBSERVED)
 
-
-
-
-
-
+# calculate NSE
+NSE(sim = data$FLOW, obs = data$FLOW.OBSERVED)
+NSE(sim = spring_2006$FLOW, obs = spring_2006$FLOW.OBSERVED)
