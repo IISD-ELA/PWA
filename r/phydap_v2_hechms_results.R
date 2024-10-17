@@ -7,9 +7,12 @@ head(data)
 install.packages('tidyverse')
 install.packages('tibbletime')
 install.packages('lubridate')
+install.packages('reshape2')
 library(tidyverse)
 library(tibbletime)
 library(lubridate)
+library(ggplot2)
+library(reshape2)
 
 # convert Date column into date-time class (POSIXct)
 data$Date <- ymd_hm(data$Date)
@@ -32,3 +35,21 @@ head(agg_tbl_year)
 # convert tibble to dataframe
 df_by_year <- agg_tbl_year %>% as.data.frame()
 df_by_year
+
+# plot flow values by year
+df_by_year_lf <- melt(df_by_year, id.vars = "year")
+head(df_by_year_lf)
+
+ggplot(df_by_year_lf, aes(x=year, y=value, col = variable))+
+  geom_line()+
+  geom_point()+
+  scale_x_continuous(name = "Year", breaks = waiver(), n.breaks = 13)+
+  labs(x="Year", y="Flow")
+
+
+
+
+
+
+
+
