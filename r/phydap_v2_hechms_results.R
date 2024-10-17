@@ -9,12 +9,16 @@ install.packages('tibbletime')
 install.packages('lubridate')
 install.packages('reshape2')
 install.packages('hydroGOF')
+install.packages('glue')
+install.packages('scales')
 library(tidyverse)
 library(tibbletime)
 library(lubridate)
 library(ggplot2)
 library(reshape2)
 library(hydroGOF)
+library(glue)
+library(scales)
 
 # convert Date column into date-time class (POSIXct)
 data$Date <- ymd_hm(data$Date)
@@ -52,10 +56,43 @@ ggplot(df_by_year_lf, aes(x=year, y=value, col = variable))+
 spring_2006 <- filter_time(data, time_formula = '2006-03-01' ~ '2006-05-31')
 View(spring_2006)
 
+# filter data to spring 2003
+spring_2003 <- filter_time(data, time_formula = '2003-03-01' ~ '2003-05-31')
+View(spring_2003)
+
 # calculate percent bias
 pbias(sim = data$FLOW, obs = data$FLOW.OBSERVED)
-pbias(sim = spring_2006$FLOW, obs = spring_2006$FLOW.OBSERVED)
+pbias_2006 <- pbias(sim = spring_2006$FLOW, obs = spring_2006$FLOW.OBSERVED)
+pbias_2003 <- pbias(sim = spring_2003$FLOW, obs = spring_2003$FLOW.OBSERVED)
+
 
 # calculate NSE
 NSE(sim = data$FLOW, obs = data$FLOW.OBSERVED)
-NSE(sim = spring_2006$FLOW, obs = spring_2006$FLOW.OBSERVED)
+NSE_2006 <- round(NSE(sim = spring_2006$FLOW, obs = spring_2006$FLOW.OBSERVED), digits = 4)
+NSE_2003 <- round(NSE(sim = spring_2003$FLOW, obs = spring_2003$FLOW.OBSERVED), digits = 4)
+
+
+# plot flow values for spring 2003 with performance metrics
+spring_2003_lf <- melt(spring_2003, id.vars = "Date")
+head(spring_2003_lf)
+
+ggplot(spring_2003_lf, aes(x=Date, y=value, col = variable))+
+  geom_line()+
+  labs(x="Date", y="Flow")+
+  scale_x_datetime(name = "2003", date_breaks = waiver(), labels = date_format("%b-%d"))+
+  annotate(geom = "text", x = as.POSIXct("2003-05-25"), y = 7.9, label = glue("% Bias = {pbias_2003}"))+
+  annotate(geom = "text", x = as.POSIXct("2003-05-25"), y = 7.4, label = glue("NSE = {NSE_2003}"))
+
+
+# plot flow values for spring 2006 with performance metrics
+spring_2006_lf <- melt(spring_2006, id.vars = "Date")
+head(spring_2006_lf)
+
+ggplot(spring_2006_lf, aes(x=Date, y=value, col = variable))+
+  geom_line()+
+  labs(x="Date", y="Flow")+
+  scale_x_datetime(name = "2006", date_breaks = waiver(), labels = date_format("%b-%d"))+
+  annotate(geom = "text", x = as.POSIXct("2006-05-25"), y = 55, label = glue("% Bias = {pbias_2006}"))+
+  annotate(geom = "text", x = as.POSIXct("2006-05-25"), y = 50, label = glue("NSE = {NSE_2006}"))
+
+
