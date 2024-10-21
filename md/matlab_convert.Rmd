@@ -1,0 +1,43 @@
+---
+title: "Converting PHyDAP NetCDF Data"
+author: "Thomas Saleh"
+date: "09/27/2024"
+output: 
+  html_document:
+    keep_md: true
+---
+
+```{r Setup}
+
+library(ncdf4)
+library(lubridate)
+library(dplyr)
+library(here)
+library(ggplot2)
+
+```
+
+```{r Testing the conversion function}
+
+#See script in r/matlab_convert.r
+snow_runoff <- ncdf_rr_convert("Data/Raw/PHyDAP2/PHyDAP_RDRS21_hourly_snowmelt.nc", variable_ = "snowmelt", basin_ids = c(7120966730, 7120966470), basin_names = c("cypress_ds", "cypress_us"))
+
+snow_runoff %>% 
+  filter(timestamp > ymd("2018-01-01")) %>% 
+  ggplot(aes(timestamp, cypress_us)) +
+  geom_point()
+
+```
+
+```{r loading remaining datasets}
+
+surface_runoff <- ncdf_rr_convert("Data/Raw/PHyDAP2/PHyDAP_RDRS21_hourly_runoff.nc", variable_ = "upland_runoff", basin_ids = c(7120966730, 7120966470), basin_names = c("cypress_ds", "cypress_us"))
+
+```
+
+```{r}
+test <- nc_open(here("Data/Raw/PHyDAP_RDRS21_hourly_runoff.nc"))
+
+R_nc4_get_vara_double()
+```
+
