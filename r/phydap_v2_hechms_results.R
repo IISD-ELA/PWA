@@ -103,6 +103,10 @@ pbias_tophalf_start2003
 pbias_bottomhalf_start2003
 pbias_alldata_start2003
 
+rmse(sim = data_start2003$FLOW, obs = data_start2003$FLOW.OBSERVED)
+rmse(sim = start2003_tophalf_obs$FLOW, obs = start2003_tophalf_obs$FLOW.OBSERVED)
+rmse(sim = start2003_bottomhalf_obs$FLOW, obs = start2003_bottomhalf_obs$FLOW.OBSERVED)
+
 NSE_tophalf_start2003 <- NSE(sim = start2003_tophalf_obs$FLOW, obs = start2003_tophalf_obs$FLOW.OBSERVED)
 NSE_bottomhalf_start2003 <- NSE(sim = start2003_bottomhalf_obs$FLOW, obs = start2003_bottomhalf_obs$FLOW.OBSERVED)
 NSE_alldata_start2003 <- NSE(sim = data_start2003$FLOW, obs = data_start2003$FLOW.OBSERVED)
