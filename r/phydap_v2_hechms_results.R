@@ -1,6 +1,6 @@
 getwd()
 
-data <- read.csv("Data/Raw/phydap_v2_flow.csv")
+data <- read.csv("Data/Raw/phydap_v2_flow_allWSC.csv")
 
 head(data)
 
@@ -49,8 +49,71 @@ head(df_by_year_lf)
 ggplot(df_by_year_lf, aes(x=year, y=value, col = variable))+
   geom_line()+
   geom_point()+
-  scale_x_continuous(name = "Year", breaks = waiver(), n.breaks = 13)+
+  scale_x_continuous(name = "Year", breaks = waiver(), n.breaks = 19)+
   labs(x="Year", y="Flow")
+
+
+# split into highest 50% and lowest 50%
+top_half_obs <- df_by_year %>%
+  top_n(9, FLOW.OBSERVED)
+
+bottom_half_obs <- df_by_year %>%
+  top_n(-10, FLOW.OBSERVED)
+
+# calculate performance metrics for top and bottom 50%
+pbias_tophalf <- pbias(sim = top_half_obs$FLOW, obs = top_half_obs$FLOW.OBSERVED)
+pbias_bottomhalf <- pbias(sim = bottom_half_obs$FLOW, obs = bottom_half_obs$FLOW.OBSERVED)
+pbias_tophalf
+pbias_bottomhalf
+
+NSE_tophalf <- NSE(sim = top_half_obs$FLOW, obs = top_half_obs$FLOW.OBSERVED)
+NSE_bottomhalf <- NSE(sim = bottom_half_obs$FLOW, obs = bottom_half_obs$FLOW.OBSERVED)
+NSE_tophalf
+NSE_bottomhalf
+
+
+# filter data to 2003-2016
+
+data_start2003 <- filter_time(data, time_formula = '2003-02-26 3:00' ~ 'end')
+View(data_start2003)
+
+# group by year
+agg_start2003tbl_year <- data_start2003 %>%
+  group_by(year = lubridate::year(Date)) %>%
+  summarize(FLOW = sum(FLOW), FLOW.OBSERVED = sum(FLOW.OBSERVED))
+
+head(agg_start2003tbl_year)
+
+# convert tibble to dataframe
+df_by_year_start2003 <- agg_start2003tbl_year %>% as.data.frame()
+df_by_year_start2003
+
+# split filtered data into highest 50% and lowest 50%
+start2003_tophalf_obs <- df_by_year_start2003 %>%
+  top_n(7, FLOW.OBSERVED)
+
+start2003_bottomhalf_obs <- df_by_year_start2003 %>%
+  top_n(-7, FLOW.OBSERVED)
+
+# calculate performance metrics for filtered data top and bottom 50%
+pbias_tophalf_start2003 <- pbias(sim = start2003_tophalf_obs$FLOW, obs = start2003_tophalf_obs$FLOW.OBSERVED)
+pbias_bottomhalf_start2003 <- pbias(sim = start2003_bottomhalf_obs$FLOW, obs = start2003_bottomhalf_obs$FLOW.OBSERVED)
+pbias_alldata_start2003 <- pbias(sim = data_start2003$FLOW, obs = data_start2003$FLOW.OBSERVED)
+pbias_tophalf_start2003
+pbias_bottomhalf_start2003
+pbias_alldata_start2003
+
+rmse(sim = data_start2003$FLOW, obs = data_start2003$FLOW.OBSERVED)
+rmse(sim = start2003_tophalf_obs$FLOW, obs = start2003_tophalf_obs$FLOW.OBSERVED)
+rmse(sim = start2003_bottomhalf_obs$FLOW, obs = start2003_bottomhalf_obs$FLOW.OBSERVED)
+
+NSE_tophalf_start2003 <- NSE(sim = start2003_tophalf_obs$FLOW, obs = start2003_tophalf_obs$FLOW.OBSERVED)
+NSE_bottomhalf_start2003 <- NSE(sim = start2003_bottomhalf_obs$FLOW, obs = start2003_bottomhalf_obs$FLOW.OBSERVED)
+NSE_alldata_start2003 <- NSE(sim = data_start2003$FLOW, obs = data_start2003$FLOW.OBSERVED)
+NSE_tophalf_start2003
+NSE_bottomhalf_start2003
+NSE_alldata_start2003
+
 
 # filter data to spring 2006
 spring_2006 <- filter_time(data, time_formula = '2006-03-01' ~ '2006-05-31')
@@ -64,13 +127,13 @@ View(spring_2003)
 pbias_alldata <- pbias(sim = data$FLOW, obs = data$FLOW.OBSERVED)
 pbias_2006 <- pbias(sim = spring_2006$FLOW, obs = spring_2006$FLOW.OBSERVED)
 pbias_2003 <- pbias(sim = spring_2003$FLOW, obs = spring_2003$FLOW.OBSERVED)
-
+pbias_alldata
 
 # calculate NSE
 NSE_alldata <- round(NSE(sim = data$FLOW, obs = data$FLOW.OBSERVED), digits = 4)
 NSE_2006 <- round(NSE(sim = spring_2006$FLOW, obs = spring_2006$FLOW.OBSERVED), digits = 4)
 NSE_2003 <- round(NSE(sim = spring_2003$FLOW, obs = spring_2003$FLOW.OBSERVED), digits = 4)
-
+NSE_alldata
 
 # plot flow values for spring 2003 with performance metrics
 spring_2003_lf <- melt(spring_2003, id.vars = "Date")
