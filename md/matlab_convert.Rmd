@@ -15,25 +15,41 @@ library(dplyr)
 library(here)
 library(ggplot2)
 
+source(here("r/matlab_convert.R"))
+
 ```
 
 ```{r Testing the conversion function}
 
 #See script in r/matlab_convert.r
 snow_runoff <- ncdf_rr_convert("Data/Raw/PHyDAP2/PHyDAP_RDRS21_hourly_snowmelt.nc", variable_ = "snowmelt", basin_ids = c(7120966730, 7120966470), basin_names = c("cypress_ds", "cypress_us"))
+```
 
+```{r plotting snow runoff}
 snow_runoff %>% 
-  filter(timestamp > ymd("2018-01-01")) %>% 
+  filter(timestamp < ymd("1980-05-01") & timestamp > ymd("1980-04-01")) %>% 
   ggplot(aes(timestamp, cypress_us)) +
   geom_point()
 
 ```
 
+
 ```{r loading remaining datasets}
 
-surface_runoff <- ncdf_rr_convert("Data/Raw/PHyDAP2/PHyDAP_RDRS21_hourly_runoff.nc", variable_ = "upland_runoff", basin_ids = c(7120966730, 7120966470), basin_names = c("cypress_ds", "cypress_us"))
+surface_runoff <- ncdf_rr_convert("Data/Raw/PHyDAP2/PHyDAP_RDRS21_hourly_runoff.nc", variable_ = "cropped_runoff", basin_ids = c(7120966730, 7120966470), basin_names = c("cypress_ds", "cypress_us"))
 
 ```
+```{r plotting surface runoff}
+surface_runoff %>% 
+  filter(timestamp < ymd("1980-05-01") & timestamp > ymd("1980-04-01")) %>% 
+  ggplot(aes(timestamp, cypress_us)) +
+  geom_point()
+```
+
+```{r}
+surface_runoff <- ncdf_rr_convert("Data/Raw/PHyDAP2/PHyDAP_RDRS21_hourly_runoff.nc", variable_ = "cropped_runoff", basin_ids = c(7120966730, 7120966470), basin_names = c("cypress_ds", "cypress_us"))
+```
+
 
 ```{r}
 test <- nc_open(here("Data/Raw/PHyDAP_RDRS21_hourly_runoff.nc"))

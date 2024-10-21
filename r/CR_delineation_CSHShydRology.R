@@ -3,6 +3,7 @@
 
 #ch_wbt_catchment_onestep with CR data
 
+<<<<<<< Updated upstream
 wd <- ("C:/Users/emilito/Documents/PWA/Data/Raw")
 setwd(wd)
 getwd()
@@ -15,16 +16,32 @@ require(sf)
 pourpoint_CR <- read_sf(dsn = wd, layer = "pp_10m")
 pourpoint_CR
 
+=======
+>>>>>>> Stashed changes
 library(CSHShydRology)
 library(whitebox)
+
+wd <- paste0(getwd(),"/Data/Processed/cr_delineations/20m")
+# setwd(wd)
+
+require(sf)
+pourpoint_CR <- read_sf(dsn = paste0(getwd(),"/Data/Raw/CR_delineation"), layer = "pp_CR_test")
+pourpoint_CR
+
+
 if (check_whitebox_binary()){
   library(raster)
   pourpoint_file_CR <- tempfile("CR_pourpoints", fileext = ".shp")
   pourpoints <- pourpoint_CR
   # write pourpoints to file
   st_write(pourpoints, pourpoint_file_CR)
+<<<<<<< Updated upstream
   catchment <- ch_wbt_catchment_onestep(wd = here("Data/Processed"), in_dem = here("Data/Raw/Pembina_LiDAR_DEM_Clip_10m.tif"),
                                         pp_sf = pourpoints, sink_method = "fill", threshold = 1, snap_dist = 10)
+=======
+  catchment <- ch_wbt_catchment_onestep(wd = wd, in_dem = paste0(getwd(),"/Data/Processed/CR_delineations/20m/cr_dem_20m.tif"),
+                                        pp_sf = pourpoints, sink_method = "fill", threshold = 1, snap_dist = 20)
+>>>>>>> Stashed changes
 } else {
   message("Examples not run as Whitebox executable not found")
 }
