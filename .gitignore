@@ -12,3 +12,5 @@ Data
 *.Rproj
 *.tif*
 *.tfw
+GpMessages/
+ImportLog/
