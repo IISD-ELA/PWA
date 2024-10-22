@@ -4,13 +4,13 @@ data <- read.csv("Data/Raw/phydap_v2_flow_allWSC.csv")
 
 head(data)
 
-install.packages('tidyverse')
-install.packages('tibbletime')
-install.packages('lubridate')
-install.packages('reshape2')
-install.packages('hydroGOF')
-install.packages('glue')
-install.packages('scales')
+# install.packages('tidyverse')
+# install.packages('tibbletime')
+# install.packages('lubridate')
+# install.packages('reshape2')
+# install.packages('hydroGOF')
+# install.packages('glue')
+# install.packages('scales')
 library(tidyverse)
 library(tibbletime)
 library(lubridate)
@@ -26,7 +26,9 @@ data$Date <- ymd_hm(data$Date)
 str(data)
 
 # convert dataframe to tbl_time object
-data <- as_tbl_time(data, index = Date)
+data <- as_tbl_time(data, index = Date) %>% 
+  filter(year(Date) >= 2003)
+
 # filter data by date-time
 test <- filter_time(data, time_formula = '2003-02-26' ~ '2003-02-28')
 print(test, n = 25)
@@ -55,10 +57,88 @@ ggplot(df_by_year_lf, aes(x=year, y=value, col = variable))+
 
 # split into highest 50% and lowest 50%
 top_half_obs <- df_by_year %>%
-  top_n(9, FLOW.OBSERVED)
+  top_n(7, FLOW.OBSERVED)
 
 bottom_half_obs <- df_by_year %>%
-  top_n(-10, FLOW.OBSERVED)
+  top_n(-8, FLOW.OBSERVED)
+
+### TS Proposed Corrections ----
+top_yy <- unique(top_half_obs$year)
+btm_yy <- unique(bottom_half_obs$year)
+
+wet_yy_data <- data %>% 
+  filter(year(Date) %in% top_yy)
+
+dry_yy_data <- data %>% 
+  filter(year(Date) %in% btm_yy) 
+
+### 
+# note: we're interested in calculating %bias and NSE in the _original_ data from those years, 
+# not in the summary values you calculated to sort the years out 
+# (insufficient data there, and not comparable to the original performance metrics we calculated.
+# Note also: I'm working with the data from 2003 onward (slight adjustment to your code which can be commented out) 
+###
+
+
+pbias_wet_yy <- pbias(sim = wet_yy_data$FLOW, obs = wet_yy_data$FLOW.OBSERVED)
+pbias_dry_yy <- pbias(sim = dry_yy_data$FLOW, obs = dry_yy_data$FLOW.OBSERVED)
+
+###
+# The % bias didn't actually differ from the one you calculated. This is likely because there is
+# a roughly equal amount of observations for each year, so averaging across all observations is the same
+# as averaging across all years. 
+###
+
+NSE_wet_yy <-  NSE(sim = wet_yy_data$FLOW, obs = wet_yy_data$FLOW.OBSERVED)
+NSE_dry_yy <- NSE(sim = dry_yy_data$FLOW, obs = dry_yy_data$FLOW.OBSERVED)
+
+###
+# The new results here are interesting. We get a NSE of 0.350 for wet years (which is actually not too bad)
+# On the other hand, NSE for dry years is even worse than what you calculated: -1.29 (Not great...)
+# So we might want to avoid relying on PHyDAP for drought scenarios for example.
+###
+
+rmse_wet_yy <- rmse(sim = wet_yy_data$FLOW, obs = wet_yy_data$FLOW.OBSERVED)
+rmse_dry_yy <- rmse(sim = dry_yy_data$FLOW, obs = dry_yy_data$FLOW.OBSERVED)
+mean(wet_yy_data$FLOW.OBSERVED)
+mean(dry_yy_data$FLOW.OBSERVED)
+
+### 
+# The RMSE in dry years is actually lower than wet years, so the absolute error from the model is actually lower.
+# In either case, the error on any one observation is at least 3X more than the mean observed value, 
+# so we know PHyDAP is way off on individual observations
+###
+
+
+###
+# Let's do something similar with the seasons, but instead of "spring_2006" for example, use the filter function as shown below.
+###
+spring_data <- data %>% 
+  filter(month(Date) > 3 & month(Date) < 7)
+
+summer_data <- data %>% 
+  filter(month(Date) > 6 & month(Date) < 10)
+
+fall_data <- data %>% 
+  filter(month(Date) > 9)
+
+# We can also create a function to more quickly & succinctly reapply the same calculations to different datasets
+model_summary <- function(phydap_data){
+  results <- list(pct_bias = pbias(sim = phydap_data$FLOW, obs = phydap_data$FLOW.OBSERVED),
+  nse = NSE(sim = phydap_data$FLOW, obs = phydap_data$FLOW.OBSERVED),
+  rmse = rmse(sim = phydap_data$FLOW, obs = phydap_data$FLOW.OBSERVED),
+  mean_val = mean(phydap_data$FLOW.OBSERVED))
+  
+  return(results)
+  }
+
+spring_smy <- model_summary(spring_data)
+summer_smy <- model_summary(summer_data)
+fall_smy <- model_summary((fall_data))
+
+# The results confirm that model performance is better in the spring (NSE = 0.289) than in the summer or fall
+
+### Elena Code --- 
 
 # calculate performance metrics for top and bottom 50%
 pbias_tophalf <- pbias(sim = top_half_obs$FLOW, obs = top_half_obs$FLOW.OBSERVED)
