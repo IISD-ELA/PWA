@@ -1,0 +1,45 @@
+---
+title: "Cypress River Hydrology Model Evaluation"
+author: "Thomas Saleh"
+date: "10/22/2024"
+output: 
+  html_document:
+    keep_md: true
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(include = TRUE, echo = TRUE, message = FALSE)
+
+library(tidyverse)
+library(tibbletime)
+library(lubridate)
+library(ggplot2)
+library(reshape2)
+library(hydroGOF)
+library(glue)
+library(scales)
+library(here)
+
+here::i_am("PWA.Rproj")
+```
+
+# Cypress River Hydrology Model Evaluation
+
+## Pilot Description
+
+We decided to pilot ___ on the Cypress River because xy
+
+## Loading Data
+
+
+```{r Data Import}
+
+data <- read_csv(here("Data/Raw/phydap_v2_flow_allWSC.csv"))
+
+head(data)
+
+glimpse(data)
+
+```
+
+The mean observed flow is `r mean(data$FLOW.OBSERVED)`
