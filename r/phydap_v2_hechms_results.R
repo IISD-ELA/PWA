@@ -30,8 +30,27 @@ data <- as_tbl_time(data, index = Date) %>%
   filter(year(Date) >= 2003)
 
 # filter data by date-time
-test <- filter_time(data, time_formula = '2003-02-26' ~ '2003-02-28')
-print(test, n = 25)
+#test <- filter_time(data, time_formula = '2003-02-26' ~ '2003-02-28')
+#print(test, n = 25)
+
+# calculate performance metrics
+
+pbias_alldata <- pbias(sim = data$FLOW, obs = data$FLOW.OBSERVED)
+NSE_alldata <- round(NSE(sim = data$FLOW, obs = data$FLOW.OBSERVED), digits = 4)
+rmse_alldata <- round(rmse(sim = data$FLOW, obs = data$FLOW.OBSERVED), digits = 4)
+
+# plot flow values
+
+data_lf <- melt(data, id.vars = "Date")
+head(data_lf)
+
+ggplot(data_lf, aes(x=Date, y=value, col = variable))+
+  geom_line()+
+  labs(x="Date", y="Flow")+
+  scale_x_datetime(name = "Date", date_breaks = "1 year", labels = date_format("%Y"))+
+  annotate(geom = "text", x = as.POSIXct("2015-05-01"), y = 55, label = glue("% Bias = {pbias_alldata}"))+
+  annotate(geom = "text", x = as.POSIXct("2015-05-01"), y = 50, label = glue("NSE = {NSE_alldata}"))+
+  annotate(geom = "text", x = as.POSIXct("2015-05-01"), y = 45, label = glue("RMSE = {RMSE_alldata}"))
 
 # group by year
 agg_tbl_year <- data %>%
@@ -53,7 +72,6 @@ ggplot(df_by_year_lf, aes(x=year, y=value, col = variable))+
   geom_point()+
   scale_x_continuous(name = "Year", breaks = waiver(), n.breaks = 19)+
   labs(x="Year", y="Flow")
-
 
 # split into highest 50% and lowest 50%
 top_half_obs <- df_by_year %>%
@@ -79,7 +97,6 @@ dry_yy_data <- data %>%
 # Note also: I'm working with the data from 2003 onward (slight adjustment to your code which can be commented out) 
 ###
 
-
 pbias_wet_yy <- pbias(sim = wet_yy_data$FLOW, obs = wet_yy_data$FLOW.OBSERVED)
 pbias_dry_yy <- pbias(sim = dry_yy_data$FLOW, obs = dry_yy_data$FLOW.OBSERVED)
 
@@ -89,8 +106,8 @@ pbias_dry_yy <- pbias(sim = dry_yy_data$FLOW, obs = dry_yy_data$FLOW.OBSERVED)
 # as averaging across all years. 
 ###
 
-NSE_wet_yy <-  NSE(sim = wet_yy_data$FLOW, obs = wet_yy_data$FLOW.OBSERVED)
-NSE_dry_yy <- NSE(sim = dry_yy_data$FLOW, obs = dry_yy_data$FLOW.OBSERVED)
+NSE_wet_yy <-  round(NSE(sim = wet_yy_data$FLOW, obs = wet_yy_data$FLOW.OBSERVED), digits = 4)
+NSE_dry_yy <- round(NSE(sim = dry_yy_data$FLOW, obs = dry_yy_data$FLOW.OBSERVED), digits = 4)
 
 ###
 # The new results here are interesting. We get a NSE of 0.350 for wet years (which is actually not too bad)
@@ -98,10 +115,10 @@ NSE_dry_yy <- NSE(sim = dry_yy_data$FLOW, obs = dry_yy_data$FLOW.OBSERVED)
 # So we might want to avoid relying on PHyDAP for drought scenarios for example.
 ###
 
-rmse_wet_yy <- rmse(sim = wet_yy_data$FLOW, obs = wet_yy_data$FLOW.OBSERVED)
-rmse_dry_yy <- rmse(sim = dry_yy_data$FLOW, obs = dry_yy_data$FLOW.OBSERVED)
-mean(wet_yy_data$FLOW.OBSERVED)
-mean(dry_yy_data$FLOW.OBSERVED)
+rmse_wet_yy <- round(rmse(sim = wet_yy_data$FLOW, obs = wet_yy_data$FLOW.OBSERVED), digits = 4)
+rmse_dry_yy <- round(rmse(sim = dry_yy_data$FLOW, obs = dry_yy_data$FLOW.OBSERVED), digits = 4)
+mean_wet_yy <- mean(wet_yy_data$FLOW.OBSERVED)
+mean_dr_yy <- mean(dry_yy_data$FLOW.OBSERVED)
 
 ### 
 # The RMSE in dry years is actually lower than wet years, so the absolute error from the model is actually lower.
@@ -122,200 +139,54 @@ summer_data <- data %>%
 fall_data <- data %>% 
   filter(month(Date) > 9)
 
+pbias_spring <- pbias(sim = spring_data$FLOW, obs = spring_data$FLOW.OBSERVED)
+pbias_summer <- pbias(sim = summer_data$FLOW, obs = summer_data$FLOW.OBSERVED)
+pbias_fall <- pbias(sim = fall_data$FLOW, obs = fall_data$FLOW.OBSERVED)
+
+NSE_spring <-  round(NSE(sim = spring_data$FLOW, obs = spring_data$FLOW.OBSERVED), digits = 4)
+NSE_summer <- round(NSE(sim = summer_data$FLOW, obs = summer_data$FLOW.OBSERVED), digits = 4)
+NSE_fall <- round(NSE(sim = fall_data$FLOW, obs = fall_data$FLOW.OBSERVED), digits = 4)
+
+rmse_spring <- round(rmse(sim = spring_data$FLOW, obs = spring_data$FLOW.OBSERVED), digits = 4)
+rmse_summer <- round(rmse(sim = summer_data$FLOW, obs = summer_data$FLOW.OBSERVED), digits = 4)
+rmse_fall <- round(rmse(sim = fall_data$FLOW, obs = fall_data$FLOW.OBSERVED), digits = 4)
+
+mean_spring <- round(mean(spring_data$FLOW.OBSERVED), digits = 4)
+mean_summer <- round(mean(summer_data$FLOW.OBSERVED), digits = 4)
+mean_fall <- round(mean(fall_data$FLOW.OBSERVED), digits = 4)
+
 # We can also create a function to more quickly & succinctly reapply the same calculations to different datasets
 model_summary <- function(phydap_data){
   results <- list(pct_bias = pbias(sim = phydap_data$FLOW, obs = phydap_data$FLOW.OBSERVED),
-  nse = NSE(sim = phydap_data$FLOW, obs = phydap_data$FLOW.OBSERVED),
-  rmse = rmse(sim = phydap_data$FLOW, obs = phydap_data$FLOW.OBSERVED),
-  mean_val = mean(phydap_data$FLOW.OBSERVED))
+  nse = round(NSE(sim = phydap_data$FLOW, obs = phydap_data$FLOW.OBSERVED), digits = 4),
+  rmse = round(rmse(sim = phydap_data$FLOW, obs = phydap_data$FLOW.OBSERVED), digits = 4),
+  mean_val = round(mean(phydap_data$FLOW.OBSERVED)), digits = 4)
   
   return(results)
   }
 
 spring_smy <- model_summary(spring_data)
 summer_smy <- model_summary(summer_data)
-fall_smy <- model_summary((fall_data))
+fall_smy <- model_summary(fall_data)
+wet_yy_smy <- model_summary(wet_yy_data)
+dry_yy_smy <- model_summary(dry_yy_data)
+alldata_smy <- model_summary(data)
 
 # The results confirm that model performance is better in the spring (NSE = 0.289) than in the summer or fall
 
-### Elena Code --- 
+# displaying results as table
+results <- matrix(c(alldata_smy$pct_bias,alldata_smy$nse,alldata_smy$rmse,
+                    alldata_smy$mean_val,wet_yy_smy$pct_bias,wet_yy_smy$nse,
+                    wet_yy_smy$rmse,wet_yy_smy$mean_val,dry_yy_smy$pct_bias,
+                    dry_yy_smy$nse,dry_yy_smy$rmse,dry_yy_smy$mean_val,
+                    spring_smy$pct_bias,spring_smy$nse,spring_smy$rmse,
+                    spring_smy$mean_val,summer_smy$pct_bias,summer_smy$nse,
+                    summer_smy$rmse,summer_smy$mean_val,fall_smy$pct_bias,
+                    fall_smy$nse,fall_smy$rmse,fall_smy$mean_val), ncol=4, 
+                  byrow=TRUE)
 
-# calculate performance metrics for top and bottom 50%
-pbias_tophalf <- pbias(sim = top_half_obs$FLOW, obs = top_half_obs$FLOW.OBSERVED)
-pbias_bottomhalf <- pbias(sim = bottom_half_obs$FLOW, obs = bottom_half_obs$FLOW.OBSERVED)
-pbias_tophalf
-pbias_bottomhalf
+colnames(results) <- c('% Bias', 'NSE', 'RMSE', 'Mean')
+rownames(results) <- c('All Data', 'Wet Years', 'Dry Years', 'Spring', 'Summer', 'Fall')
 
-NSE_tophalf <- NSE(sim = top_half_obs$FLOW, obs = top_half_obs$FLOW.OBSERVED)
-NSE_bottomhalf <- NSE(sim = bottom_half_obs$FLOW, obs = bottom_half_obs$FLOW.OBSERVED)
-NSE_tophalf
-NSE_bottomhalf
-
-
-# filter data to 2003-2016
-
-data_start2003 <- filter_time(data, time_formula = '2003-02-26 3:00' ~ 'end')
-View(data_start2003)
-
-# group by year
-agg_start2003tbl_year <- data_start2003 %>%
-  group_by(year = lubridate::year(Date)) %>%
-  summarize(FLOW = sum(FLOW), FLOW.OBSERVED = sum(FLOW.OBSERVED))
-
-head(agg_start2003tbl_year)
-
-# convert tibble to dataframe
-df_by_year_start2003 <- agg_start2003tbl_year %>% as.data.frame()
-df_by_year_start2003
-
-# split filtered data into highest 50% and lowest 50%
-start2003_tophalf_obs <- df_by_year_start2003 %>%
-  top_n(7, FLOW.OBSERVED)
-
-start2003_bottomhalf_obs <- df_by_year_start2003 %>%
-  top_n(-7, FLOW.OBSERVED)
-
-# calculate performance metrics for filtered data top and bottom 50%
-pbias_tophalf_start2003 <- pbias(sim = start2003_tophalf_obs$FLOW, obs = start2003_tophalf_obs$FLOW.OBSERVED)
-pbias_bottomhalf_start2003 <- pbias(sim = start2003_bottomhalf_obs$FLOW, obs = start2003_bottomhalf_obs$FLOW.OBSERVED)
-pbias_alldata_start2003 <- pbias(sim = data_start2003$FLOW, obs = data_start2003$FLOW.OBSERVED)
-pbias_tophalf_start2003
-pbias_bottomhalf_start2003
-pbias_alldata_start2003
-
-rmse(sim = data_start2003$FLOW, obs = data_start2003$FLOW.OBSERVED)
-rmse(sim = start2003_tophalf_obs$FLOW, obs = start2003_tophalf_obs$FLOW.OBSERVED)
-rmse(sim = start2003_bottomhalf_obs$FLOW, obs = start2003_bottomhalf_obs$FLOW.OBSERVED)
-
-NSE_tophalf_start2003 <- NSE(sim = start2003_tophalf_obs$FLOW, obs = start2003_tophalf_obs$FLOW.OBSERVED)
-NSE_bottomhalf_start2003 <- NSE(sim = start2003_bottomhalf_obs$FLOW, obs = start2003_bottomhalf_obs$FLOW.OBSERVED)
-NSE_alldata_start2003 <- NSE(sim = data_start2003$FLOW, obs = data_start2003$FLOW.OBSERVED)
-NSE_tophalf_start2003
-NSE_bottomhalf_start2003
-NSE_alldata_start2003
-
-
-# filter data to spring 2006
-spring_2006 <- filter_time(data, time_formula = '2006-03-01' ~ '2006-05-31')
-View(spring_2006)
-
-# filter data to spring 2003
-spring_2003 <- filter_time(data, time_formula = '2003-03-01' ~ '2003-05-31')
-View(spring_2003)
-
-# calculate percent bias
-pbias_alldata <- pbias(sim = data$FLOW, obs = data$FLOW.OBSERVED)
-pbias_2006 <- pbias(sim = spring_2006$FLOW, obs = spring_2006$FLOW.OBSERVED)
-pbias_2003 <- pbias(sim = spring_2003$FLOW, obs = spring_2003$FLOW.OBSERVED)
-pbias_alldata
-
-# calculate NSE
-NSE_alldata <- round(NSE(sim = data$FLOW, obs = data$FLOW.OBSERVED), digits = 4)
-NSE_2006 <- round(NSE(sim = spring_2006$FLOW, obs = spring_2006$FLOW.OBSERVED), digits = 4)
-NSE_2003 <- round(NSE(sim = spring_2003$FLOW, obs = spring_2003$FLOW.OBSERVED), digits = 4)
-NSE_alldata
-
-# plot flow values for spring 2003 with performance metrics
-spring_2003_lf <- melt(spring_2003, id.vars = "Date")
-head(spring_2003_lf)
-
-ggplot(spring_2003_lf, aes(x=Date, y=value, col = variable))+
-  geom_line()+
-  labs(x="Date", y="Flow")+
-  scale_x_datetime(name = "2003", date_breaks = waiver(), labels = date_format("%b-%d"))+
-  annotate(geom = "text", x = as.POSIXct("2003-05-25"), y = 7.9, label = glue("% Bias = {pbias_2003}"))+
-  annotate(geom = "text", x = as.POSIXct("2003-05-25"), y = 7.4, label = glue("NSE = {NSE_2003}"))
-
-
-# plot flow values for spring 2006 with performance metrics
-spring_2006_lf <- melt(spring_2006, id.vars = "Date")
-head(spring_2006_lf)
-
-ggplot(spring_2006_lf, aes(x=Date, y=value, col = variable))+
-  geom_line()+
-  labs(x="Date", y="Flow")+
-  scale_x_datetime(name = "2006", date_breaks = waiver(), labels = date_format("%b-%d"))+
-  annotate(geom = "text", x = as.POSIXct("2006-05-25"), y = 55, label = glue("% Bias = {pbias_2006}"))+
-  annotate(geom = "text", x = as.POSIXct("2006-05-25"), y = 50, label = glue("NSE = {NSE_2006}"))
-
-
-# plot flow values for all data with performance metrics
-data_lf <- melt(data, id.vars = "Date")
-head(data_lf)
-
-ggplot(data_lf, aes(x=Date, y=value, col = variable))+
-  geom_line()+
-  labs(x="Date", y="Flow")+
-  scale_x_datetime(name = "Date", date_breaks = "1 year", labels = date_format("%Y"))+
-  annotate(geom = "text", x = as.POSIXct("2015-05-01"), y = 55, label = glue("% Bias = {pbias_alldata}"))+
-  annotate(geom = "text", x = as.POSIXct("2015-05-01"), y = 50, label = glue("NSE = {NSE_alldata}"))
-
-
-# filter seasonal data
-spring_all <- data[months(data$Date) %in% month.name[3:5],]
-View(spring_all)
-
-summer_all <- data[months(data$Date) %in% month.name[6:8],]
-View(summer_all)
-
-fall_all <- data[months(data$Date) %in% month.name[9:11],]
-View(fall_all)
-
-winter_all <- data[months(data$Date) %in% month.name[c(1,2,12)],]
-View(winter_all)
-
-# calculate performance metrics for seasonal data
-pbias_spring <- pbias(sim = spring_all$FLOW, obs = spring_all$FLOW.OBSERVED)
-pbias_summer <- pbias(sim = summer_all$FLOW, obs = summer_all$FLOW.OBSERVED)
-pbias_fall <- pbias(sim = fall_all$FLOW, obs = fall_all$FLOW.OBSERVED)
-pbias_winter <- pbias(sim = winter_all$FLOW, obs = winter_all$FLOW.OBSERVED)
-
-NSE_spring <- round(NSE(sim = spring_all$FLOW, obs = spring_all$FLOW.OBSERVED), digits = 4)
-NSE_summer <- round(NSE(sim = summer_all$FLOW, obs = summer_all$FLOW.OBSERVED), digits = 4)
-NSE_fall <- round(NSE(sim = fall_all$FLOW, obs = fall_all$FLOW.OBSERVED), digits = 4)
-NSE_winter <- round(NSE(sim = winter_all$FLOW, obs = winter_all$FLOW.OBSERVED), digits = 4)
-
-# plot spring data
-spring_all_lf <- melt(spring_all, id.vars = "Date")
-head(spring_all_lf)
-
-ggplot(spring_all_lf, aes(x=Date, y=value, col = variable))+
-  geom_line()+
-  labs(x="Spring", y="Flow")+
-  scale_x_datetime(name = "Spring", date_breaks = "1 year", labels = date_format("%Y"))+
-  annotate(geom = "text", x = as.POSIXct("2015-04-01"), y = 55, label = glue("% Bias = {pbias_spring}"))+
-  annotate(geom = "text", x = as.POSIXct("2015-04-01"), y = 50, label = glue("NSE = {NSE_spring}"))
-
-# plot summer data
-summer_all_lf <- melt(summer_all, id.vars = "Date")
-head(summer_all_lf)
-
-ggplot(summer_all_lf, aes(x=Date, y=value, col = variable))+
-  geom_line()+
-  labs(x="Summer", y="Flow")+
-  scale_x_datetime(name = "Summer", date_breaks = "1 year", labels = date_format("%Y"))+
-  annotate(geom = "text", x = as.POSIXct("2013-08-01"), y = 1.5, label = glue("% Bias = {pbias_summer}"))+
-  annotate(geom = "text", x = as.POSIXct("2013-08-01"), y = 1.4, label = glue("NSE = {NSE_summer}"))
-
-# plot fall data
-fall_all_lf <- melt(fall_all, id.vars = "Date")
-head(fall_all_lf)
-
-ggplot(fall_all_lf, aes(x=Date, y=value, col = variable))+
-  geom_line()+
-  labs(x="Fall", y="Flow")+
-  scale_x_datetime(name = "Fall", date_breaks = "1 year", labels = date_format("%Y"))#+
-  #annotate(geom = "text", x = as.POSIXct("2015-02-01"), y = 0.9, label = glue("% Bias = {pbias_winter}"))+
-  #annotate(geom = "text", x = as.POSIXct("2015-02-01"), y = 0.85, label = glue("NSE = {NSE_winter}"))
-
-# plot winter data
-winter_all_lf <- melt(winter_all, id.vars = "Date")
-head(winter_all_lf)
-
-ggplot(winter_all_lf, aes(x=Date, y=value, col = variable))+
-  geom_line()+
-  labs(x="Winter", y="Flow")+
-  scale_x_datetime(name = "Winter", date_breaks = "1 year", labels = date_format("%Y"))+
-  annotate(geom = "text", x = as.POSIXct("2015-02-01"), y = 0.9, label = glue("% Bias = {pbias_winter}"))+
-  annotate(geom = "text", x = as.POSIXct("2015-02-01"), y = 0.85, label = glue("NSE = {NSE_winter}"))
-
+results_table <- as.table(results)
+results_table
