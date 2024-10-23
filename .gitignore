@@ -8,7 +8,9 @@ Cypress_HEC-HMS
 .Rproj.user
 PWA.gdb
 .Rhistory
-Data/
+Data
+CR_delineation
+CR_project
 *.Rproj
 *.tif*
 *.tfw

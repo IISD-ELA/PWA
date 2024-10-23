@@ -358,8 +358,6 @@ Evaluation</h1>
 </div>
 
 
-<div id="cypress-river-hydrology-model-evaluation" class="section level1">
-<h1>Cypress River Hydrology Model Evaluation</h1>
 <div id="pilot-description" class="section level2">
 <h2>Pilot Description</h2>
 <p>We decided to pilot ___ on the Cypress River because xy</p>
@@ -385,6 +383,69 @@ head(data)</code></pre>
 ## $ FLOW          &lt;dbl&gt; 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,…
 ## $ FLOW.OBSERVED &lt;dbl&gt; 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,…</code></pre>
 <p>The mean observed flow is 0.5132862</p>
+</div>
+<div id="cleaning-data" class="section level2">
+<h2>Cleaning Data</h2>
+<pre class="r"><code>data$Date &lt;- ymd_hm(data$Date)
+
+data &lt;- as_tbl_time(data, index = Date) %&gt;% 
+  filter(year(Date) &gt;= 2003)</code></pre>
+</div>
+<div id="filtering-data" class="section level2">
+<h2>Filtering Data</h2>
+<pre class="r"><code>agg_tbl_year &lt;- data %&gt;%
+  group_by(year = lubridate::year(Date)) %&gt;%
+  summarize(FLOW = sum(FLOW), FLOW.OBSERVED = sum(FLOW.OBSERVED))
+
+df_by_year &lt;- agg_tbl_year %&gt;% as.data.frame()
+
+top_half_obs &lt;- df_by_year %&gt;%
+  top_n(7, FLOW.OBSERVED)
+
+btm_half_obs &lt;- df_by_year %&gt;%
+  top_n(-8, FLOW.OBSERVED)
+
+top_yy &lt;- unique(top_half_obs$year)
+btm_yy &lt;- unique(btm_half_obs$year)
+
+wet_yy_data &lt;- data %&gt;% 
+  filter(year(Date) %in% top_yy)
+
+dry_yy_data &lt;- data %&gt;% 
+  filter(year(Date) %in% btm_yy)</code></pre>
+<pre class="r"><code>spring_data &lt;- data %&gt;% 
+  filter(month(Date) &gt; 3 &amp; month(Date) &lt; 7)
+
+summer_data &lt;- data %&gt;% 
+  filter(month(Date) &gt; 6 &amp; month(Date) &lt; 10)
+
+fall_data &lt;- data %&gt;% 
+  filter(month(Date) &gt; 9)</code></pre>
+</div>
+<div id="calculating-performance-metrics" class="section level2">
+<h2>Calculating Performance Metrics</h2>
+<pre class="r"><code>model_summary &lt;- function(phydap_data){
+  results &lt;- list(pct_bias = pbias(sim = phydap_data$FLOW, obs = phydap_data$FLOW.OBSERVED),
+  nse = NSE(sim = phydap_data$FLOW, obs = phydap_data$FLOW.OBSERVED),
+  rmse = rmse(sim = phydap_data$FLOW, obs = phydap_data$FLOW.OBSERVED),
+  mean_val = mean(phydap_data$FLOW.OBSERVED))
+  
+  return(results)
+  }
+
+wet_smy &lt;- model_summary(wet_yy_data)
+dry_smy &lt;- model_summary(dry_yy_data)
+
+spring_smy &lt;- model_summary(spring_data)
+summer_smy &lt;- model_summary(summer_data)
+fall_smy &lt;- model_summary(fall_data)</code></pre>
+<div id="performance-metrics-bias-nse-rmse-mean" class="section level3">
+<h3>Performance Metrics (% Bias, NSE, RMSE, Mean):</h3>
+<p>Wet Years: -19.3, 0.35036, 2.9974162, 0.8788341</p>
+<p>Dry Years: 18.9, -1.2863867, 1.3937077, 0.2938949</p>
+<p>Spring: -5.7, 0.2889986, 4.0273582, 1.6794824</p>
+<p>Summer: -94, 0.0021544, 0.9067793, 0.249761</p>
+<p>Fall: -99.7, -0.0385895, 0.1329109, 0.0259566</p>
 </div>
 </div>
 
