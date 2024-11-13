@@ -1,7 +1,5 @@
 getwd()
 
-
-
 ncdf_rr_convert <- function(path_, variable_, basin_ids, basin_names){
   
   # Load Libraries
@@ -54,43 +52,141 @@ View(surface_runoff)
 
 ######################
 
-# create and write a netCDF file
+# create and write a netCDF file from ncdf_rr_convert output
 
-# path and file name, set dname
+## path and file name, set dname
 ncpath <- here("CR_project/PHyDAP/")
 ncname <- "PHyDAP_runoff_ncdf4"  
 ncfname <- paste(ncpath, ncname, ".nc", sep="")
-dname <- "runoff"  # note: tmp means temperature (not temporary)
+dname <- "cropped_runoff"
 
-
-# create and write the netCDF file -- ncdf4 version
-# define dimensions
+## define dimensions
 #hybasdim <- ncdim_def("HYBAS_ID","no unit", as.double(HYBAS_ID)) 
 timedim <- ncdim_def("time_hrs","time in hours since 1900-01-01",
                      as.double(time_hrs))
 
-# define variables
+## define variables
 fillvalue <- 1e32
 dlname <- "cypress_us"
 us_runoff_def <- ncvar_def("cypress_us","m",timedim,fillvalue,dlname,prec="single")
 dlname <- "cypress_ds"
 ds_runoff_def <- ncvar_def("cypress_ds","m",timedim,fillvalue,dlname,prec="single")
 
-# create netCDF file and put arrays
+## create netCDF file and put arrays
 ncout <- nc_create(ncfname,list(us_runoff_def,ds_runoff_def),force_v4=TRUE)
 
-# put variables
+## put variables
 surface_runoff_array <- as.matrix(surface_runoff)
 head(surface_runoff_array)
 ncvar_put(ncout,us_runoff_def,surface_runoff$cypress_us)
 ncvar_put(ncout,ds_runoff_def,surface_runoff$cypress_ds)
 
-# put additional attributes into dimension and data variables
+## put additional attributes into dimension and data variables
 # ncatt_put(ncout,"HYBAS_ID","axis","X") #,verbose=FALSE) #,definemode=FALSE)
 ncatt_put(ncout,"time_hrs","axis","T")
 
-# summary of file
+## summary of file
 ncout
 
-# close the file, writing data to disk
+## close the file, writing data to disk
 nc_close(ncout)
+
+
+#######################
+# Load Libraries
+
+library(ncdf4)
+library(lubridate)
+library(dplyr)
+library(here)
+
+# read netCDF file
+
+## set path and filename
+ncpath <- here("CR_project/PHyDAP/")
+ncname <- "runoff_wlat_ncdf4"  
+ncfname <- paste(ncpath, ncname, ".nc", sep="")
+dname <- "cropped_runoff"
+
+## open a netCDF file
+nc_file <- nc_open(here("CR_project/PHyDAP/PHyDAP_RDRS21_hourly_runoff.nc"))
+print(nc_file)
+
+## get dimensions
+time <- ncvar_get(nc_file, "time_hrs")
+time
+tunits <- ncatt_get(nc_file,"time_hrs","units")
+tunits
+tlunits <- "hours since 1900-01-01 00:00:00"
+nt <- dim(time)
+nt
+
+hybas_id <- ncvar_get(nc_file, "HYBAS_ID")
+hybas_id
+nh <- dim(hybas_id)
+nh
+
+## get variable
+rnff_array <- ncvar_get(nc_file,dname)
+dunits <- ncatt_get(nc_file,dname,"units")
+fillvalue <- ncatt_get(nc_file,dname,"_FillValue")
+dim(rnff_array)
+
+## reshape the array into a vector
+rnff_vec_long <- as.vector(rnff_array)
+length(rnff_vec_long)
+
+## add lat
+#lat <- as.array(rep(49.43, 4175))
+lat <- as.array(49.43)
+lat
+
+nlat <- dim(lat)
+nlat
+
+## reshape the vector into a matrix
+rnff_mat <- matrix(rnff_vec_long, nrow = nh*nlat, ncol = nt)
+dim(rnff_mat)
+
+## remove unnecessary objects to free up RAM memory
+rm(nc_file)
+rm(rnff_vec_long)
+
+## reshape the array
+rnff_array2 <- array(rnff_mat, dim=c(nh,nlat,nt))
+dim(rnff_array2)
+
+
+# create and write the netCDF file with lat -- ncdf4 version
+
+## define dimensions
+londim <- ncdim_def("lon","degrees_east",as.double(hybas_id)) 
+latdim <- ncdim_def("lat","degrees_north",as.double(lat)) 
+timedim <- ncdim_def("time",tlunits,as.double(time))
+
+## define variables
+fillvalue <- 1e32
+dlname <- "runoff"
+rnff_def <- ncvar_def("runoff","mm/h",list(londim,latdim,timedim),fillvalue,dlname,prec="single")
+
+## create netCDF file and put arrays
+ncout_wlat <- nc_create(ncfname,rnff_def,force_v4=TRUE)
+
+
+## remove unnecessary objects and put variables
+rm(rnff_array)
+rm(rnff_mat)
+
+ncvar_put(ncout_wlat,rnff_def,rnff_array2)
+
+
+## put additional attributes into dimension and data variables
+ncatt_put(ncout_wlat,"lon","axis","X") #,verbose=FALSE) #,definemode=FALSE)
+ncatt_put(ncout_wlat,"lat","axis","Y")
+ncatt_put(ncout_wlat,"time","axis","T")
+
+## Get a summary of the created file:
+ncout_wlat
+
+## close the file, writing data to disk
+nc_close(ncout_wlat)
