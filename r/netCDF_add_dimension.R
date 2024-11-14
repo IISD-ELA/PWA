@@ -186,9 +186,9 @@ timedim2 <- ncdim_def("time_hrs","time in hours since 1900-01-01",
 ## define variables
 fillvalue2 <- 1e32
 dlname2 <- "cypress_us"
-us_runoff_def <- ncvar_def("cypress_us","m",timedim,fillvalue2,dlname2,prec="single")
+us_runoff_def <- ncvar_def("cypress_us","m",timedim2,fillvalue2,dlname2,prec="single")
 dlname2 <- "cypress_ds"
-ds_runoff_def <- ncvar_def("cypress_ds","m",timedim,fillvalue2,dlname2,prec="single")
+ds_runoff_def <- ncvar_def("cypress_ds","m",timedim2,fillvalue2,dlname2,prec="single")
 
 ## create netCDF file and put arrays
 ncout <- nc_create(ncfname2,list(us_runoff_def,ds_runoff_def),force_v4=TRUE)
