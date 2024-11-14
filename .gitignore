@@ -16,3 +16,4 @@ CR_project
 *.tfw
 GpMessages/
 ImportLog/
+.pyHistory
