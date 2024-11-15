@@ -160,21 +160,38 @@ nc_close(ncout_wlat)
 # create a function
 
 ncdf_add_dim <- function(path_in, path_out, new_file_name, dim1_name, dim2_name,
-                         var_name, var_units){
+                         var_name, var_units, basin_ids){
   
   # Declare location of current script
   i_am("PWA.Rproj")
   
   # Open file
-  nc_file <- nc_open(here(path_in))
+  nc_file <- nc_open(here("Data/Raw/PHyDAP2/PHyDAP_RDRS21_hourly_runoff.nc"))
+  
+  basin_ids = c(7120966730, 7120966470)
+  var_name = "cropped_runoff"
+  # Optional select HYBAS ID
+  HYBAS_ID <- ncvar_get(nc_file, "HYBAS_ID")
+  hb_index <- which(HYBAS_ID %in% basin_ids)
+  
+  for (i in 1:length(hb_index)){
+    basin_data <-  nc_file %>% 
+      ncvar_get(var_name, start = c(hb_index[i], 1), count = c(1, -1)) #%>% 
+     # as.numeric()
+    
+  }
   
   # Get dimensions and store them as objects
   nt <- nc_file %>%
-    ncvar_get(dim1_name) %>%
+    ncvar_get("time_hrs") %>%
     dim()
   
-  nh <- nc_file %>%
-    ncvar_get(dim2_name) %>%
+  #nh <- nc_file %>%
+    #ncvar_get(dim2_name) %>%
+    #dim()
+  
+  nh <- basin_ids %>%
+    as.array() %>%
     dim()
   
   # Create false latitude dimension
@@ -182,8 +199,13 @@ ncdf_add_dim <- function(path_in, path_out, new_file_name, dim1_name, dim2_name,
   nlat <- dim(lat)
   
   # Get variable and reshape it into an array with 3 dimensions
-  rnff_array <- nc_file %>%
-    ncvar_get(var_name) %>%
+#  rnff_array <- nc_file %>%
+    #ncvar_get(var_name) %>%
+    #as.vector() %>%
+    #matrix(nrow = nh*nlat, ncol = nt) %>%
+    #array(dim = c(nh,nlat,nt))
+  
+  rnff_array <- basin_data %>%
     as.vector() %>%
     matrix(nrow = nh*nlat, ncol = nt) %>%
     array(dim = c(nh,nlat,nt))
@@ -191,12 +213,16 @@ ncdf_add_dim <- function(path_in, path_out, new_file_name, dim1_name, dim2_name,
   # Define dimensions
   tlunits <- "hours since 1900-01-01 00:00:00"
   timedim <- nc_file %>%
-    ncvar_get(dim1_name) %>%
+    ncvar_get("time_hrs") %>%
     as.double() %>%
     ncdim_def("time",tlunits, .)
   
-  londim <- nc_file %>%
-    ncvar_get(dim2_name) %>%
+  #londim <- nc_file %>%
+    #ncvar_get(dim2_name) %>%
+    #as.double() %>%
+    #ncdim_def("lon","degrees_east", .)
+  
+  londim <- basin_ids %>%
     as.double() %>%
     ncdim_def("lon","degrees_east", .)
   
@@ -208,10 +234,11 @@ ncdf_add_dim <- function(path_in, path_out, new_file_name, dim1_name, dim2_name,
   # Define variable
   fillvalue <- 1e32
   var_lname <- "runoff"
-  rnff_def <- ncvar_def("runoff",var_units,list(londim,latdim,timedim),fillvalue,var_lname,prec="single")
+  rnff_def <- ncvar_def("runoff","mm/h",list(londim,latdim,timedim),fillvalue,var_lname,prec="single")
   
   # Define output path and file name
-  ncfname <- paste(path_out, new_file_name, ".nc", sep="")
+  new_file_name <- "runoff_wlat_ncdf4_selectHYBAS"
+  ncfname <- paste("Data/Processed/", new_file_name, ".nc", sep="")
   
   # Create netCDF file and put arrays
   ncout_wlat <- nc_create(ncfname,rnff_def,force_v4=TRUE)
@@ -232,8 +259,13 @@ ncdf_add_dim <- function(path_in, path_out, new_file_name, dim1_name, dim2_name,
   
 }
 
-ncdf_add_dim("Data/Raw/PHyDAP2/PHyDAP_RDRS21_hourly_runoff.nc", "Data/Processed/", 
-              "runoff_wlat_ncdf4", "time_hrs", "HYBAS_ID", "cropped_runoff", "mm/h")
+ncdf_add_dim("Data/Raw/PHyDAP2/PHyDAP_RDRS21_hourly_runoff.nc", 
+             "Data/Processed/", "runoff_wlat_ncdf4", 
+             dim1_name = "time_hrs", 
+             dim2_name = "HYBAS_ID", 
+             var_name = "cropped_runoff", 
+             var_units = "mm/h",
+             basin_ids = c(7120966730, 7120966470))
 
 ######################
 
