@@ -4,6 +4,128 @@ require(dplyr)
 require(here)
 require(purrr)
 
+##########################
+# create function to add latitude dimension
+path_in <- "Data/Raw/PHyDAP2/PHyDAP_RDRS21_hourly_runoff.nc"
+path_out <- "Data/Processed/"
+new_file_name <- "runoff_wlat_ncdf4_hybas_select_test1"
+dim1_name = "time_hrs" 
+dim2_name = "HYBAS_ID" 
+var_name = "cropped_runoff"
+var_units = "mm/h"
+basin_ids = 7120966730
+
+ncdf_add_dim <- function(path_in, path_out, new_file_name, dim1_name, dim2_name,
+                         var_name, var_units, basin_ids){
+  
+  # Declare location of current script
+  i_am("PWA.Rproj")
+  
+  # Open file
+  nc_file <- nc_open(here(path_in))
+  
+  # Create false latitude dimension
+  lat <- as.array(49.43)
+  nlat <- dim(lat)
+  
+  # Get time dimension and store as object
+  nt <- nc_file %>%
+    ncvar_get(dim1_name) %>%
+    dim()
+  
+  # Optional select HYBAS ID
+  
+  if(missing(basin_ids)) {
+    nh <- nc_file %>%
+      ncvar_get(dim2_name) %>%
+      dim()
+    
+    rnff_array <- nc_file %>%
+      ncvar_get(var_name) %>%
+      as.vector() %>%
+      matrix(nrow = nh*nlat, ncol = nt) %>%
+      array(dim = c(nh,nlat,nt))
+    
+    londim <- nc_file %>%
+      ncvar_get(dim2_name) %>%
+      as.double() %>%
+      ncdim_def("lon","degrees_east", .)
+    
+  } else {
+    HYBAS_ID <- ncvar_get(nc_file, dim2_name)
+    hb_index <- which(HYBAS_ID %in% basin_ids)
+    
+    for (i in 1:length(hb_index)){
+      basin_data <-  nc_file %>% 
+        ncvar_get(var_name, start = c(hb_index[i], 1), count = c(1, -1)) %>% 
+        as.numeric()
+      
+    }
+    
+    nh <- basin_ids %>%
+      as.array() %>%
+      dim()
+    
+    rnff_array <- basin_data %>%
+      as.vector() %>%
+      matrix(nrow = nh*nlat, ncol = nt) %>%
+      array(dim = c(nh,nlat,nt))
+    
+    londim <- basin_ids %>%
+      as.double() %>%
+      ncdim_def("lon","degrees_east", .)
+    
+  }
+  
+  # Define dimensions
+  tlunits <- "hours since 1900-01-01 00:00:00"
+  timedim <- nc_file %>%
+    ncvar_get(dim1_name) %>%
+    as.double() %>%
+    ncdim_def("time",tlunits, .)
+  
+  latdim <- ncdim_def("lat","degrees_north",as.double(lat)) 
+  
+  # Close original netCDF file  
+  nc_close(nc_file)
+  
+  # Define variable
+  fillvalue <- 1e32
+  var_lname <- "runoff"
+  rnff_def <- ncvar_def("runoff",var_units,list(londim,latdim,timedim),fillvalue,var_lname,prec="single")
+  
+  # Define output path and file name
+  ncfname <- paste(path_out, new_file_name, ".nc", sep="")
+  
+  # Create netCDF file and put arrays
+  ncout_wlat <- nc_create(ncfname,rnff_def,force_v4=TRUE)
+  
+  # Put variables
+  ncvar_put(ncout_wlat,rnff_def,rnff_array)
+  
+  # Put additional attributes into dimension and data variables
+  ncatt_put(ncout_wlat,"lon","axis","X") #,verbose=FALSE) #,definemode=FALSE)
+  ncatt_put(ncout_wlat,"lat","axis","Y")
+  ncatt_put(ncout_wlat,"time","axis","T")
+  
+  # Get a summary of the created file
+  ncout_wlat
+  
+  # Close the file, writing data to disk
+  nc_close(ncout_wlat)
+  
+}
+
+ncdf_add_dim("Data/Raw/PHyDAP2/PHyDAP_RDRS21_hourly_runoff.nc", 
+             "Data/Processed/", "runoff_wlat_ncdf4_hybas_noselect", 
+             dim1_name = "time_hrs", 
+             dim2_name = "HYBAS_ID", 
+             var_name = "cropped_runoff", 
+             var_units = "mm/h",
+             basin_ids = c(7120966730, 7120966470))
+
+
+
 # TS NOTES - Next steps: transform the full script into a function (or series of functions)
 #    - add an optional feature to filter down to select HYBAS_IDs
 
@@ -49,7 +171,7 @@ surface_runoff <- ncdf_rr_convert("Data/Raw/PHyDAP2/PHyDAP_RDRS21_hourly_runoff.
                                   basin_names = c("cypress_ds", "cypress_us"))
 
 # head(surface_runoff)
-# View(surface_runoff)
+View(surface_runoff)
 
 # TS NOTE - As a rule, I recommend leaving these lines (View, head, glimpse, etc.) out of the actual code 
 # unless you foresee having to run them repeatedly. These can be run in the console as needed instead.
@@ -154,158 +276,3 @@ nc_close(ncout_wlat)
 
 # TS NOTE - when this is transformed into a function, we should add a parameter 
 # where we can specify the specific HYBAS_IDs to keep (maybe leaving a default option that includes all)
-
-
-##########################
-# create a function
-
-ncdf_add_dim <- function(path_in, path_out, new_file_name, dim1_name, dim2_name,
-                         var_name, var_units, basin_ids){
-  
-  # Declare location of current script
-  i_am("PWA.Rproj")
-  
-  # Open file
-  nc_file <- nc_open(here("Data/Raw/PHyDAP2/PHyDAP_RDRS21_hourly_runoff.nc"))
-  
-  basin_ids = c(7120966730, 7120966470)
-  var_name = "cropped_runoff"
-  # Optional select HYBAS ID
-  HYBAS_ID <- ncvar_get(nc_file, "HYBAS_ID")
-  hb_index <- which(HYBAS_ID %in% basin_ids)
-  
-  for (i in 1:length(hb_index)){
-    basin_data <-  nc_file %>% 
-      ncvar_get(var_name, start = c(hb_index[i], 1), count = c(1, -1)) #%>% 
-     # as.numeric()
-    
-  }
-  
-  # Get dimensions and store them as objects
-  nt <- nc_file %>%
-    ncvar_get("time_hrs") %>%
-    dim()
-  
-  #nh <- nc_file %>%
-    #ncvar_get(dim2_name) %>%
-    #dim()
-  
-  nh <- basin_ids %>%
-    as.array() %>%
-    dim()
-  
-  # Create false latitude dimension
-  lat <- as.array(49.43)
-  nlat <- dim(lat)
-  
-  # Get variable and reshape it into an array with 3 dimensions
-#  rnff_array <- nc_file %>%
-    #ncvar_get(var_name) %>%
-    #as.vector() %>%
-    #matrix(nrow = nh*nlat, ncol = nt) %>%
-    #array(dim = c(nh,nlat,nt))
-  
-  rnff_array <- basin_data %>%
-    as.vector() %>%
-    matrix(nrow = nh*nlat, ncol = nt) %>%
-    array(dim = c(nh,nlat,nt))
-  
-  # Define dimensions
-  tlunits <- "hours since 1900-01-01 00:00:00"
-  timedim <- nc_file %>%
-    ncvar_get("time_hrs") %>%
-    as.double() %>%
-    ncdim_def("time",tlunits, .)
-  
-  #londim <- nc_file %>%
-    #ncvar_get(dim2_name) %>%
-    #as.double() %>%
-    #ncdim_def("lon","degrees_east", .)
-  
-  londim <- basin_ids %>%
-    as.double() %>%
-    ncdim_def("lon","degrees_east", .)
-  
-  latdim <- ncdim_def("lat","degrees_north",as.double(lat)) 
-  
-  # Close original netCDF file  
-  nc_close(nc_file)
-  
-  # Define variable
-  fillvalue <- 1e32
-  var_lname <- "runoff"
-  rnff_def <- ncvar_def("runoff","mm/h",list(londim,latdim,timedim),fillvalue,var_lname,prec="single")
-  
-  # Define output path and file name
-  new_file_name <- "runoff_wlat_ncdf4_selectHYBAS"
-  ncfname <- paste("Data/Processed/", new_file_name, ".nc", sep="")
-  
-  # Create netCDF file and put arrays
-  ncout_wlat <- nc_create(ncfname,rnff_def,force_v4=TRUE)
-  
-  # Put variables
-  ncvar_put(ncout_wlat,rnff_def,rnff_array)
-  
-  # Put additional attributes into dimension and data variables
-  ncatt_put(ncout_wlat,"lon","axis","X") #,verbose=FALSE) #,definemode=FALSE)
-  ncatt_put(ncout_wlat,"lat","axis","Y")
-  ncatt_put(ncout_wlat,"time","axis","T")
-  
-  # Get a summary of the created file
-  ncout_wlat
-  
-  # Close the file, writing data to disk
-  nc_close(ncout_wlat)
-  
-}
-
-ncdf_add_dim("Data/Raw/PHyDAP2/PHyDAP_RDRS21_hourly_runoff.nc", 
-             "Data/Processed/", "runoff_wlat_ncdf4", 
-             dim1_name = "time_hrs", 
-             dim2_name = "HYBAS_ID", 
-             var_name = "cropped_runoff", 
-             var_units = "mm/h",
-             basin_ids = c(7120966730, 7120966470))
-
-######################
-
-# TS NOTE - did not review the code below this point. I'm assuming it's no longer relevant? If so, comment it out or delete it.
-
-# create and write a netCDF file from ncdf_rr_convert output
-
-## path and file name, set var_name
-ncpath2 <- here("CR_project/PHyDAP/")
-ncname2 <- "PHyDAP_runoff_ncdf4"  
-ncfname2 <- paste(ncpath, ncname, ".nc", sep="")
-var_name2 <- "cropped_runoff"
-
-## define dimensions
-timedim2 <- ncdim_def("time_hrs","time in hours since 1900-01-01",
-                     as.double(time_hrs))
-
-## define variables
-fillvalue2 <- 1e32
-var_lname2 <- "cypress_us"
-us_runoff_def <- ncvar_def("cypress_us","m",timedim2,fillvalue2,var_lname2,prec="single")
-var_lname2 <- "cypress_ds"
-ds_runoff_def <- ncvar_def("cypress_ds","m",timedim2,fillvalue2,var_lname2,prec="single")
-
-## create netCDF file and put arrays
-ncout <- nc_create(ncfname2,list(us_runoff_def,ds_runoff_def),force_v4=TRUE)
-
-## put variables
-surface_runoff_array <- as.matrix(surface_runoff)
-head(surface_runoff_array)
-ncvar_put(ncout,us_runoff_def,surface_runoff$cypress_us)
-ncvar_put(ncout,ds_runoff_def,surface_runoff$cypress_ds)
-
-## put additional attributes into dimension and data variables
-ncatt_put(ncout,"time_hrs","axis","T")
-
-## summary of file
-ncout
-
-## close the file, writing data to disk
-nc_close(ncout)
-
-
