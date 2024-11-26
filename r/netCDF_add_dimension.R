@@ -8,7 +8,7 @@ require(purrr)
 # create function to add latitude dimension
 path_in <- "Data/Raw/PHyDAP2/PHyDAP_RDRS21_hourly_runoff.nc"
 path_out <- "Data/Processed/"
-new_file_name <- "runoff_wlat_ncdf4_hybas_select_test1"
+new_file_name <- "runoff_wlat_ncdf4_hybas_index_test"
 dim1_name = "time_hrs" 
 dim2_name = "HYBAS_ID" 
 var_name = "cropped_runoff"
@@ -46,8 +46,9 @@ ncdf_add_dim <- function(path_in, path_out, new_file_name, dim1_name, dim2_name,
       matrix(nrow = nh*nlat, ncol = nt) %>%
       array(dim = c(nh,nlat,nt))
     
-    londim <- nc_file %>%
-      ncvar_get(dim2_name) %>%
+    HYBAS_ID <- ncvar_get(nc_file, dim2_name)
+    
+    londim <- which(HYBAS_ID == HYBAS_ID) %>%
       as.double() %>%
       ncdim_def("lon","degrees_east", .)
     
