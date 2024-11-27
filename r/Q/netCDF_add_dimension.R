@@ -25,21 +25,25 @@ ncdf_add_dim <- function(path_in, path_out, new_file_name, dim1_name, dim2_name,
     ncvar_get(dim1_name) %>%
     dim()
   
-  # Optional select HYBAS ID
+  # If no basin ids are specified for the filter function:
   
   if(missing(basin_ids)) {
+    # Get the number of hydrobasins
     nh <- nc_file %>%
       ncvar_get(dim2_name) %>%
       dim()
     
+    # Convert the netcdf data to a large array
     rnff_array <- nc_file %>%
       ncvar_get(var_name) %>%
       as.vector() %>%
-      matrix(nrow = nh*nlat, ncol = nt) %>%
+      matrix(nrow = nh*nlat, ncol = nt) %>% 
       array(dim = c(nh,nlat,nt))
     
+    # get the origing hybas id values from the net cdf file
     HYBAS_ID <- ncvar_get(nc_file, dim2_name)
     
+    # Get the indices from the HYBAS_ID vector and generate a new lon ncdf dimension
     londim <- which(HYBAS_ID == HYBAS_ID) %>%
       as.double() %>%
       ncdim_def("lon","degrees_east", .)
@@ -111,8 +115,8 @@ ncdf_add_dim <- function(path_in, path_out, new_file_name, dim1_name, dim2_name,
   
 }
 
-ncdf_add_dim("Data/Raw/PHyDAP2/PHyDAP_RDRS21_hourly_runoff.nc", 
-             "Data/Processed/", "runoff_wlat_ncdf4", 
+ncdf_add_dim(path_in = "Data/Raw/PHyDAP2/PHyDAP_RDRS21_hourly_runoff.nc", 
+             path_out = "Data/Processed/", new_file_name = "runoff_wlat_ncdf4", 
              dim1_name = "time_hrs", 
              dim2_name = "HYBAS_ID", 
              var_name = "cropped_runoff", 
