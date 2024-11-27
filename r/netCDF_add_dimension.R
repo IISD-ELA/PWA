@@ -6,14 +6,6 @@ require(purrr)
 
 ##########################
 # create function to add latitude dimension
-path_in <- "Data/Raw/PHyDAP2/PHyDAP_RDRS21_hourly_runoff.nc"
-path_out <- "Data/Processed/"
-new_file_name <- "runoff_wlat_ncdf4_hybas_index_test"
-dim1_name = "time_hrs" 
-dim2_name = "HYBAS_ID" 
-var_name = "cropped_runoff"
-var_units = "mm/h"
-basin_ids = 7120966730
 
 ncdf_add_dim <- function(path_in, path_out, new_file_name, dim1_name, dim2_name,
                          var_name, var_units, basin_ids){
@@ -52,31 +44,33 @@ ncdf_add_dim <- function(path_in, path_out, new_file_name, dim1_name, dim2_name,
       as.double() %>%
       ncdim_def("lon","degrees_east", .)
     
-  } else {
-    HYBAS_ID <- ncvar_get(nc_file, dim2_name)
-    hb_index <- which(HYBAS_ID %in% basin_ids)
-    
-    for (i in 1:length(hb_index)){
-      basin_data <-  nc_file %>% 
-        ncvar_get(var_name, start = c(hb_index[i], 1), count = c(1, -1)) %>% 
-        as.numeric()
-      
-    }
-    
-    nh <- basin_ids %>%
-      as.array() %>%
-      dim()
-    
-    rnff_array <- basin_data %>%
-      as.vector() %>%
-      matrix(nrow = nh*nlat, ncol = nt) %>%
-      array(dim = c(nh,nlat,nt))
-    
-    londim <- basin_ids %>%
-      as.double() %>%
-      ncdim_def("lon","degrees_east", .)
-    
-  }
+  } 
+  # NON-FUNCTIONAL BASIN ID FILTERING CODE
+  # else {
+  #   HYBAS_ID <- ncvar_get(nc_file, dim2_name)
+  #   hb_index <- which(HYBAS_ID %in% basin_ids)
+  #   
+  #   for (i in 1:length(hb_index)){
+  #     basin_data <-  nc_file %>% 
+  #       ncvar_get(var_name, start = c(hb_index[i], 1), count = c(1, -1)) %>% 
+  #       as.numeric()
+  #     
+  #   }
+  #   
+  #   nh <- basin_ids %>%
+  #     as.array() %>%
+  #     dim()
+  #   
+  #   rnff_array <- basin_data %>%
+  #     as.vector() %>%
+  #     matrix(nrow = nh*nlat, ncol = nt) %>%
+  #     array(dim = c(nh,nlat,nt))
+  #   
+  #   londim <- basin_ids %>%
+  #     as.double() %>%
+  #     ncdim_def("lon","degrees_east", .)
+  #   
+  # }
   
   # Define dimensions
   tlunits <- "hours since 1900-01-01 00:00:00"
@@ -118,14 +112,16 @@ ncdf_add_dim <- function(path_in, path_out, new_file_name, dim1_name, dim2_name,
 }
 
 ncdf_add_dim("Data/Raw/PHyDAP2/PHyDAP_RDRS21_hourly_runoff.nc", 
-             "Data/Processed/", "runoff_wlat_ncdf4_hybas_noselect", 
+             "Data/Processed/", "runoff_wlat_ncdf4", 
              dim1_name = "time_hrs", 
              dim2_name = "HYBAS_ID", 
              var_name = "cropped_runoff", 
-             var_units = "mm/h",
-             basin_ids = c(7120966730, 7120966470))
+             var_units = "mm/h")
+             #basin_ids = c(7120966730, 7120966470)
 
 
+#######################
+# Previous Code
 
 # TS NOTES - Next steps: transform the full script into a function (or series of functions)
 #    - add an optional feature to filter down to select HYBAS_IDs
