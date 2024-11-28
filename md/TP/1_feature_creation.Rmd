@@ -29,6 +29,7 @@ library(tidyverse)
 library(here)
 library(caTools)
 library(caret)
+library(ncdf4)
 # library(...)
 
 i_am("PWA.Rproj") # set local project directory for here()
@@ -106,5 +107,18 @@ Note: we will be working with very large datasets. If these become too cumbersom
 - average travel time (or HRU centroid distance from modeled / observed site)
 
 ## Timeseries data
+
+### Weather (RDRS)
+
+```{r import RDRS ncdf files}
+
+tt_rdrs <- load_rdrs(f_path = here(raw_data,"RDRS"), var_ids = list("RDRS_v2.1_P_TT_1.5m"), dims = list("time", "rlat", "rlon"))
+
+```
+
+```{r apply gridweights to basin shapefile}
+# leaning on raven gridweights function
+```
+
 
 ## Feature Creation
