@@ -3,7 +3,7 @@
 
 ## RDRS --------------------------------------------------------------------
 
-load_rdrs <- function(f_path, var_ids, dims = list("time", "rlat", "rlon")){
+load_rdrs <- function(f_path, var_ids, dims = list("time", "lat", "lon")){
   
   cat("Warning: Handling of multiple var_ids is not yet supported\n")
   
@@ -32,7 +32,7 @@ load_rdrs <- function(f_path, var_ids, dims = list("time", "rlat", "rlon")){
   
   rdrs_full <- abind::abind(rdrs_arrays, along = 3)
   
-  return(rdrs_full)
+  return(list(df = rdrs_full, dims = dims_map))
 } 
 
 attr(load_rdrs, "help") <- list(params = "load_rdrs expects 2 parameters (+ optional chr list of dims), definitions are in the params attribute",

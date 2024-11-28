@@ -112,13 +112,15 @@ Note: we will be working with very large datasets. If these become too cumbersom
 
 ```{r import RDRS ncdf files}
 
-tt_rdrs <- load_rdrs(f_path = here(raw_data,"RDRS"), var_ids = list("RDRS_v2.1_P_TT_1.5m"), dims = list("time", "rlat", "rlon"))
+tt_rdrs <- load_rdrs(f_path = here(raw_data,"RDRS"), var_ids = list("RDRS_v2.1_P_TT_1.5m"), dims = list("time", "lat", "lon"))
 
 ```
-
+<!-- leaning on raven gridweights function -->
 ```{r apply gridweights to basin shapefile}
-# leaning on raven gridweights function
+# run the following lines in CLI or terminal
+# python py/derive_grid_weights.py -i Data/Raw/RDRS/2007061812.nc   -d "rlon,rlat" -v "lon,lat" -r Data/Processed/cr_delineations/20m/s_basin_export.shp -s 4046879 -o md/TP/gridweights/subbasin4046879.txt
 ```
 
+The python script was amended slightly. The coordinate systems / projections need to be adjusted in order for the script to work correctly.
 
 ## Feature Creation

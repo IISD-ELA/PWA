@@ -1,0 +1,20 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+      {
+        "name": "Python: derive_grid_weights.py",
+        "type": "python",
+        "request": "launch",
+        "program": "${workspaceFolder}/py/derive_grid_weights.py",
+        "pythonPath": "C:/Users/tsaleh/.conda/envs/PWA/python.exe",
+        "args": [
+          "-i", "Data/Raw/RDRS/2007061812.nc",
+          "-d", "rlon,rlat",
+          "-v", "lon,lat",
+          "-r", "Data/Processed/cr_delineations/20m/s_basin_export.shp",
+          "-s", "4046879",
+          "-o", "md/TP/gridweights/subbasin4046879.txt"
+        ]
+      }
+    ]
+  }
