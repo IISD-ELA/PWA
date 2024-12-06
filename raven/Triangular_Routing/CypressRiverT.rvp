@@ -1,0 +1,33 @@
+# ----------------------------------------------
+# Raven Input file
+# Walkthrough #6: Grid-based routing example
+# ----------------------------------------------
+
+# Soil/Vegetation/Land use class definitions ------
+:SoilClasses
+  AQUIFER      # only one soil class used here
+:EndSoilClasses
+
+:SoilProfiles
+  # name, number of layers, soil class, thickness [m]
+  LandHRU_soil_profile,    1,    AQUIFER, 5
+:EndSoilProfiles
+
+# the vegetation and land use parameters unused in routing
+:VegetationClasses
+  :Attributes,                MAX_HT,       MAX_LAI,    MAX_LEAF_COND       
+  :Units,                       m,            none,       mm_per_s
+  LandHRU_vege_class,           25,           5.0,          5.0      
+:EndVegetationClasses
+
+:LandUseClasses
+  :Attributes,        IMPERMEABLE_FRAC,         FOREST_COVERAGE
+  :Units,                     fract,                    fract
+  LandHRU_landuse_class,      0,                        1           
+:EndLandUseClasses
+
+# Global Parameters-----------------------------
+:AvgAnnualRunoff 		75 
+
+# redirects to channel properties file
+:RedirectToFile         channel_properties_T.rvp
