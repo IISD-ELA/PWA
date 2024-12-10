@@ -47,6 +47,8 @@ Note: we will be working with very large datasets. If these become too cumbersom
 ```{r importing data}
 
 # data_obj <- read_csv(here(path_obj, "path"))
+crop_data <- read.csv(here(raw_data, "crop_categories_data.csv"))
+prcnt_crop <- read.csv(here(raw_data, "percent_crop_type_per_hybas_CR.csv"))
 
 ```
 
@@ -89,22 +91,46 @@ Note: we will be working with very large datasets. If these become too cumbersom
 
 ```
 
-- Combine sub-basins (for CR, group into 2: upper and lower)
-
-```{r combine sub-basins}
-
-# s_bsn_df <- combine_hrus()
-
-```
-
-
 ### Calculate parameters for each HRU
 
 - Net P fertilization (weighted max & weighted min)
 
+```{r}
+crop_data$max_f <- crop_data$max_add - crop_data$min_uptk
+crop_data$min_f <- crop_data$min_add - crop_data$max_uptk
+
+max_f_wa_US <- weighted.mean(crop_data$max_f, prcnt_crop$X7120966470)
+min_f_wa_US <- weighted.mean(crop_data$min_f, prcnt_crop$X7120966470)
+
+max_f_wa_DS <- weighted.mean(crop_data$max_f, prcnt_crop$X7120966730)
+min_f_wa_DS <- weighted.mean(crop_data$min_f, prcnt_crop$X7120966730)
+```
+
 - Crop cover period (weighted start & weighted end)
 
+```{r}
+start_wa_US <- round(weighted.mean(crop_data$start_date, prcnt_crop$X7120966470))
+start_date_wa_US <- as_date(start_wa_US, origin = "1899-12-30")
+end_wa_US <- round(weighted.mean(crop_data$end_date, prcnt_crop$X7120966470))
+end_date_wa_US <- as_date(end_wa_US, origin = "1899-12-30")
+
+start_wa_DS <- round(weighted.mean(crop_data$start_date, prcnt_crop$X7120966730))
+start_date_wa_DS <- as_date(start_wa_DS, origin = "1899-12-30")
+end_wa_DS <- round(weighted.mean(crop_data$end_date, prcnt_crop$X7120966730))
+end_date_wa_DS <- as_date(end_wa_DS, origin = "1899-12-30")
+```
+
 - average travel time (or HRU centroid distance from modeled / observed site)
+
+### Output table with HRU parameters
+
+```{r}
+wq_crop_outputs <- data.frame(basin=c('US', 'DS'),
+                              max_fert=c(max_f_wa_US,max_f_wa_DS),
+                              min_fert=c(min_f_wa_US,min_f_wa_DS),
+                              start_date=c(start_date_wa_US,start_date_wa_DS),
+                              end_date=c(end_date_wa_US,end_date_wa_DS))
+```
 
 ## Timeseries data
 
