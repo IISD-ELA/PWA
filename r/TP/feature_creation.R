@@ -41,3 +41,49 @@ attr(load_rdrs, "help") <- list(params = "load_rdrs expects 2 parameters (+ opti
 attr(load_rdrs, "params") <- list(f_path = "the path to the folder containing all of the rdrs ncdf files",
                                   var_ids = "A list of strings. Can include one or more values (feature pending)",
                                   dims = "A list of strings for dimension names. Defaults to time, rlon, rlat")
+
+# Crop data
+
+wq_crop_parameters <- function(crop_data, prcnt_crop, basin_id){
+  
+  # Declare location of current script
+  i_am("PWA.Rproj")
+  
+  # Calculate net P fertilization (weighted max & weighted min)
+  
+  max_f_wa_US <- (crop_data$max_add - crop_data$min_uptk) %>%
+    weighted.mean(prcnt_crop$X7120966470)
+  
+  min_f_wa_DS <- (crop_data$min_add - crop_data$max_uptk) %>%
+    weighted.mean(prcnt_crop$X7120966730)
+
+  # Calculate crop cover period (weighted start & weighted end)
+  start_date_wa_US <- crop_data$start_date %>%
+    weighted.mean(prcnt_crop$X7120966470) %>%
+    round() %>%
+    as_date(origin = "1899-12-30")
+  
+  start_date_wa_DS <- crop_data$start_date %>%
+    weighted.mean(prcnt_crop$X7120966730) %>%
+    round() %>%
+    as_date(origin = "1899-12-30")
+  
+  end_date_wa_US <- crop_data$end_date %>%
+    weighted.mean(prcnt_crop$X7120966470) %>%
+    round() %>%
+    as_date(origin = "1899-12-30")
+  
+  end_date_wa_DS <- crop_data$end_date %>%
+    weighted.mean(prcnt_crop$X7120966730) %>%
+    round() %>%
+    as_date(origin = "1899-12-30")
+  
+  # Create output table
+  wq_crop_outputs <- data.frame(basin=basin_id,
+                                max_fert=c(max_f_wa_US,max_f_wa_DS),
+                                min_fert=c(min_f_wa_US,min_f_wa_DS),
+                                start_date=c(start_date_wa_US,start_date_wa_DS),
+                                end_date=c(end_date_wa_US,end_date_wa_DS))
+  View(wq_crop_outputs)
+  
+}
