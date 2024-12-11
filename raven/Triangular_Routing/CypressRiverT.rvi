@@ -3,7 +3,7 @@
 # Walkthrough #6: Grid-based routing example
 # ----------------------------------------------
 :StartDate             1980-01-03 01:00:00           # Model run start time, format in yyyy-mm-dd hh:mm:ss
-:EndDate               2018-12-29 00:00:00           # Model run end time, format in yyyy-mm-dd hh:mm:ss
+:EndDate               2024-09-01 00:00:00           # Model run end time, format in yyyy-mm-dd hh:mm:ss
 :Method                ORDERED_SERIES                # Numerical method used for simulation
 :TimeStep              01:00:00                      # Expressed in days as a real-valued number (e.g., 1.0 for one day) or using hh:mm:ss format (e.g., 24:00:00 for one hour).
 :RunName               CypressRiver                  # The name of model run. It will be added as a prefix of model output files.
