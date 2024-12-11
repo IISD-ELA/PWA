@@ -5,7 +5,7 @@
 
 :GriddedForcing           StreamInputs
     :ForcingType          PRECIP
-    :FileNameNC           input/CR_runoff.nc
+    :FileNameNC           input/runoff_wlat_ncdf4.nc
     :VarNameNC            runoff
     :DimNamesNC           lon lat time     # must be in the order of (x,y,t)  
     :LinearTransform      24.0     0.0
@@ -15,7 +15,7 @@
 
 :GriddedForcing             Averagetemp
     :ForcingType            TEMP_AVE
-    :FileNameNC             input/CR_runoff.nc
+    :FileNameNC             input/runoff_wlat_ncdf4.nc
     :VarNameNC              runoff
     :DimNamesNC             lon lat time
     :RedirectToFile         input/GridWeights.txt
