@@ -1,0 +1,68 @@
+---
+title: "Cypress River Hydrology Model Evaluation"
+author: "Thomas Saleh"
+date: "12/12/2024"
+output: 
+  html_document:
+    keep_md: true
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(include = TRUE, echo = TRUE, message = FALSE)
+
+library(here)
+library(readr)
+library(dplyr)
+library(lubridate)
+
+i_am("PWA.rproj")
+```
+
+```{r loading model results}
+era5_results <- read_csv(here("raven/Triangular_Routing/output/CypressRiver_Hydrographs.csv"))
+
+
+```
+
+
+```{r function}
+calculate_metrics <- function(results_tibble) {
+  metrics <- list(
+    r = cor(results_tibble$`sub875 (observed) [m3/s]`, results_tibble$`sub875 [m3/s]`, use = "complete.obs"),
+    alpha = sd(results_tibble$`sub875 [m3/s]`, na.rm = TRUE) / sd(results_tibble$`sub875 (observed) [m3/s]`, na.rm = TRUE),
+    beta = mean(results_tibble$`sub875 [m3/s]`, na.rm = TRUE) / mean(results_tibble$`sub875 (observed) [m3/s]`, na.rm = TRUE)
+  )
+  
+  metrics$KGE <- 1 - sqrt((metrics$r - 1)^2 +
+                          (metrics$alpha - 1)^2 +
+                          (metrics$beta - 1)^2)
+  
+  return(metrics)
+}
+
+```
+
+```{r model performance metrics}
+
+era5_metrics <- list()
+
+era5_metrics$all <- calculate_metrics(era5_results)
+```
+
+
+
+```{r after 2003}
+era5_recent <- era5_results %>% 
+  filter(year(date)>2002)
+
+era5_metrics$recent <- calculate_metrics(era5_recent)
+```
+
+
+```{r spring in flood years}
+era5_flood <- era5_recent %>% 
+  filter(month(date) < 7 & year(date) %in% c(2004, 2006, 2009, 2013, 2017))
+
+era5_metrics$flood <- calculate_metrics(era5_flood)
+```
+
