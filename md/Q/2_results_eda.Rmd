@@ -24,7 +24,6 @@ era5_results <- read_csv(here("raven/Triangular_Routing/output/CypressRiver_Hydr
 
 ```
 
-
 ```{r function}
 calculate_metrics <- function(results_tibble) {
   metrics <- list(
@@ -37,10 +36,29 @@ calculate_metrics <- function(results_tibble) {
                           (metrics$alpha - 1)^2 +
                           (metrics$beta - 1)^2)
   
+  metrics$pbias <- pbias = (mean(results_tibble$`sub875 [m3/s]`)-mean(results_tibble$`sub875 (observed) [m3/s]`))/mean(results_tibble$`sub875 (observed) [m3/s]`)
+  
   return(metrics)
 }
 
 ```
+
+```{r check simulation during missing observation periods}
+era5_nowsc <- era5_results %>% 
+  filter(is.na(`sub875 (observed) [m3/s]`))
+
+mean(era5_nowsc$`sub875 [m3/s]`)
+
+# check bias assuming na = 0
+
+era5_nafill <- era5_results %>% 
+  mutate(`sub875 (observed) [m3/s]` = ifelse(is.na(`sub875 (observed) [m3/s]`), 0, `sub875 (observed) [m3/s]`))
+
+era5_metrics$nafill <- calculate_metrics(era5_nafill)
+
+```
+
+
 
 ```{r model performance metrics}
 
@@ -65,4 +83,5 @@ era5_flood <- era5_recent %>%
 
 era5_metrics$flood <- calculate_metrics(era5_flood)
 ```
+
 
