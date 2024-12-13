@@ -107,10 +107,10 @@ ncdf_add_dim <- function(path_in, path_out, new_file_name, dim1_name, dim2_name,
     # Put variables
     ncvar_put(ncout_wlat,rnff_def,rnff_array)  
   } else {
-    for (period in range(0, (nt %/% 514367))) {#Note 514367 is the maximum number 
+    for (period in (0:(nt %/% 100000))) {#Note 514367 is the maximum number 
     # of time records that can be handled by ncvar_put() across 4175 basins / grid cells
-    start <- (period*514367)
-    end <- min(length(rnff_array)/4175, (period+1)*514367)
+    start <- (period*100000)
+    end <- min(length(rnff_array)/4175, (period+1)*100000)
     rnff_array_temp <- rnff_array[(start*4175+1):(end*4175)]
     ncvar_put(ncout_wlat,rnff_def,rnff_array_temp, start = c(1,1,start+1), count = c(4175,1,(end-start))) 
       }

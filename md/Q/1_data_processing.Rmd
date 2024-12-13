@@ -19,9 +19,9 @@ source(here("r/Q/netCDF_add_dimension.R"))
 
 ```{r convert RDRS}
 
-if(!file.exists("Data/Processed/runoff_wlat_ncdf4.nc")){
-  ncdf_add_dim(path_in = "Data/Raw/PHyDAP2/PHyDAP_RDRS21_hourly_runoff.nc",
-               path_out = "Data/Processed/", new_file_name = "runoff_wlat_ncdf4",
+if(!file.exists(here("Data/Processed/runoff_wlat_ncdf4.nc"))){
+  ncdf_add_dim(path_in = here("Data/Raw/PHyDAP2/PHyDAP_RDRS21_hourly_runoff.nc"),
+               path_out = here("Data/Processed"), new_file_name = "/runoff_wlat_ncdf4",
                dim1_name = "time_hrs",
                dim2_name = "HYBAS_ID",
                var_name = "cropped_runoff",
@@ -31,20 +31,25 @@ if(!file.exists("Data/Processed/runoff_wlat_ncdf4.nc")){
 ```
 
 ```{r convert ERA5}
-! run this chunk only once
-if(!file.exists("Data/Processed/era5_runoff_wlat.nc")){
-  ncdf_add_dim(path_in = "Data/Raw/PHyDAP2/PHyDAP_era5_hourly_upland_runoff.nc",
-               path_out = "Data/Processed/", new_file_name = "era5_runoff_wlat",
+if(!file.exists(here("Data/Processed/era5_runoff_wlat.nc"))){
+  ncdf_add_dim(path_in = here("Data/Raw/PHyDAP2/PHyDAP_era5_hourly_upland_runoff.nc"),
+               path_out = here("Data/Processed/"), new_file_name = "/era5_runoff_wlat",
                dim1_name = "time_hrs",
                dim2_name = "HYBAS_ID",
-               var_name = "runoff",
+               var_name = "upland_runoff",
                var_units = "mm/h")
                #basin_ids = c(7120966730, 7120966470)
 }
 ```
 
-```{r}
-print(getwd())
+```{r debug}
+path_in = here("Data/Raw/PHyDAP2/PHyDAP_era5_hourly_upland_runoff.nc")
+path_out = here("Data/Processed/")
+new_file_name = "/era5_runoff_wlat"
+dim1_name = "time_hrs"
+dim2_name = "HYBAS_ID"
+var_name = "upland_runoff"
+var_units = "mm/h"
 ```
 
 To run the Raven routing model:
