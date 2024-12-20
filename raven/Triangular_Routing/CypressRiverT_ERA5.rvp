@@ -1,0 +1,63 @@
+# ----------------------------------------------
+# Raven Input file
+# Walkthrough #6: Grid-based routing example
+# ----------------------------------------------
+
+# Soil/Vegetation/Land use class definitions ------
+:SoilClasses
+  AQUIFER      # only one soil class used here
+:EndSoilClasses
+
+:SoilProfiles
+  # name, number of layers, soil class, thickness [m]
+  LandHRU_soil_profile,    1,    AQUIFER, 5
+:EndSoilProfiles
+
+# the vegetation and land use parameters unused in routing
+:VegetationClasses
+  :Attributes,                MAX_HT,       MAX_LAI,    MAX_LEAF_COND       
+  :Units,                       m,            none,       mm_per_s
+  LandHRU_vege_class,           25,           5.0,          5.0      
+:EndVegetationClasses
+
+:LandUseClasses
+  :Attributes,        IMPERMEABLE_FRAC,         FOREST_COVERAGE			
+  :Units,                     fract,                    fract
+  LandHRU_landuse_class,      0,                        1
+  SUB875,		      0,                        1
+  SUB876,		      0,                        1
+  SUB877,		      0,                        1
+  SUB878,		      0,                        1
+  SUB880,		      0,                        1
+  SUB881,		      0,                        1
+  SUB882,		      0,                        1
+  SUB883,		      0,                        1
+  SUB900,		      0,                        1
+  SUB901,		      0,                        1
+  SUB902,		      0,                        1
+  SUB903,		      0,                        1          
+:EndLandUseClasses
+
+# Global Parameters-----------------------------
+:AvgAnnualRunoff 		75 
+
+:LandUseParameterList
+  :Parameters,	DEP_SEEP_K,  		DEP_MAX
+  :Units     ,	       1/d,		     mm
+    [DEFAULT],          0.01,         20.000000
+    SUB875   ,		0.01,	      21.232793
+    SUB876   ,		0.01,	      27.391299
+    SUB877   ,		0.01,	      34.495448
+    SUB878   ,		0.01,	       5.944046
+    SUB880   ,		0.01,	      14.929590
+    SUB881   ,		0.01,	      29.124854
+    SUB882   ,		0.01,	      21.766926
+    SUB883   ,		0.01,	      66.962332
+    SUB900   ,		0.01,	     109.171041
+    SUB901   ,		0.01,	    1300.751530
+    SUB902   ,		0.01,	       9.562407
+    SUB903   ,		0.01,	      22.672613	
+:EndLandUseParameterList
+
+# redirects to channel properties file
+:RedirectToFile         channel_properties_T_ERA5.rvp

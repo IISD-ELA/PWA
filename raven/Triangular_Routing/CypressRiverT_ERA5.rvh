@@ -45,20 +45,20 @@
 #ASPECT:           HRU mean aspect, in degrees. Northern:0°, western: 90°, southern: 180°, eastern: 270°. 
 #
 :HRUs
-  :Attributes      AREA  ELEVATION       LATITUDE      LONGITUDE BASIN_ID                 LAND_USE_CLASS                      VEG_CLASS      SOIL_PROFILE  AQUIFER_PROFILE TERRAIN_CLASS      SLOPE     ASPECT
-  :Units            km2          m            deg            deg     none                           none                           none                           none     none     none        deg       degN
-       567      53.9908     464.33      49.462189     -98.819098      875          LandHRU_landuse_class             LandHRU_vege_class           LandHRU_soil_profile   [NONE]   [NONE]       1.37     177.02
-       568      17.0623     477.40      49.423184     -98.737664      876          LandHRU_landuse_class             LandHRU_vege_class           LandHRU_soil_profile   [NONE]   [NONE]       1.22     149.02
-       569       5.1519     467.62      49.453891     -98.757524      877          LandHRU_landuse_class             LandHRU_vege_class           LandHRU_soil_profile   [NONE]   [NONE]       0.74     144.05
-       570       7.7757     463.80      49.470439     -98.727394      878          LandHRU_landuse_class             LandHRU_vege_class           LandHRU_soil_profile   [NONE]   [NONE]       0.82     189.19
-       571      21.9306     485.33      49.399945     -98.635573      880          LandHRU_landuse_class             LandHRU_vege_class           LandHRU_soil_profile   [NONE]   [NONE]       0.94     170.21
-       572      23.7860     479.30      49.388762     -98.676389      881          LandHRU_landuse_class             LandHRU_vege_class           LandHRU_soil_profile   [NONE]   [NONE]       0.50     160.21
-       573      17.4219     472.11      49.436167     -98.694367      882          LandHRU_landuse_class             LandHRU_vege_class           LandHRU_soil_profile   [NONE]   [NONE]       0.89     176.54
-       574      15.0882     472.14      49.465298     -98.679590      883          LandHRU_landuse_class             LandHRU_vege_class           LandHRU_soil_profile   [NONE]   [NONE]       0.80     168.05
-       575       2.1640     492.38      49.398994     -98.595486      900          LandHRU_landuse_class             LandHRU_vege_class           LandHRU_soil_profile   [NONE]   [NONE]       1.21     175.09
-       576       2.6296     492.32      49.392456     -98.607703      901          LandHRU_landuse_class             LandHRU_vege_class           LandHRU_soil_profile   [NONE]   [NONE]       1.05     139.79
-       577       2.0595     498.71      49.348047     -98.508927      902          LandHRU_landuse_class             LandHRU_vege_class           LandHRU_soil_profile   [NONE]   [NONE]       1.16     146.66
-       578      88.3478     484.16      49.432845     -98.608442      903          LandHRU_landuse_class             LandHRU_vege_class           LandHRU_soil_profile   [NONE]   [NONE]       0.98     172.26
+  :Attributes      AREA  ELEVATION       LATITUDE      LONGITUDE BASIN_ID       LAND_USE_CLASS                      VEG_CLASS      SOIL_PROFILE  AQUIFER_PROFILE TERRAIN_CLASS      SLOPE     ASPECT
+  :Units            km2          m            deg            deg     none                 none                           none                           none     none     none        deg       degN
+       567      55.6105     464.33      49.462189     -98.819098      875               SUB875             LandHRU_vege_class           LandHRU_soil_profile   [NONE]   [NONE]       1.37     177.02
+       568      17.5741     477.40      49.423184     -98.737664      876               SUB876             LandHRU_vege_class           LandHRU_soil_profile   [NONE]   [NONE]       1.22     149.02
+       569       5.3065     467.62      49.453891     -98.757524      877          	SUB877             LandHRU_vege_class           LandHRU_soil_profile   [NONE]   [NONE]       0.74     144.05
+       570       8.0090     463.80      49.470439     -98.727394      878          	SUB878             LandHRU_vege_class           LandHRU_soil_profile   [NONE]   [NONE]       0.82     189.19
+       571      22.5886     485.33      49.399945     -98.635573      880          	SUB880             LandHRU_vege_class           LandHRU_soil_profile   [NONE]   [NONE]       0.94     170.21
+       572      24.4995     479.30      49.388762     -98.676389      881          	SUB881             LandHRU_vege_class           LandHRU_soil_profile   [NONE]   [NONE]       0.50     160.21
+       573      17.9446     472.11      49.436167     -98.694367      882          	SUB882             LandHRU_vege_class           LandHRU_soil_profile   [NONE]   [NONE]       0.89     176.54
+       574      15.5409     472.14      49.465298     -98.679590      883          	SUB883             LandHRU_vege_class           LandHRU_soil_profile   [NONE]   [NONE]       0.80     168.05
+       575       2.2289     492.38      49.398994     -98.595486      900          	SUB900             LandHRU_vege_class           LandHRU_soil_profile   [NONE]   [NONE]       1.21     175.09
+       576       2.7085     492.32      49.392456     -98.607703      901          	SUB901             LandHRU_vege_class           LandHRU_soil_profile   [NONE]   [NONE]       1.05     139.79
+       577       2.1213     498.71      49.348047     -98.508927      902          	SUB902             LandHRU_vege_class           LandHRU_soil_profile   [NONE]   [NONE]       1.16     146.66
+       578      90.9983     484.16      49.432845     -98.608442      903          	SUB903             LandHRU_vege_class           LandHRU_soil_profile   [NONE]   [NONE]       0.98     172.26
 :EndHRUs
 
 # SubBasin Properties ----------------------------------------------------
