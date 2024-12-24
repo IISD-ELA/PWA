@@ -148,6 +148,7 @@ wq_crop_outputs <- data.frame(basin=c('US', 'DS'),
                               min_fert=c(min_f_wa_US,min_f_wa_DS),
                               start_date=c(start_date_wa_US,start_date_wa_DS),
                               end_date=c(end_date_wa_US,end_date_wa_DS))
+wq_crop_outputs
 ```
 
 ## Timeseries data

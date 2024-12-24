@@ -87,3 +87,59 @@ wq_crop_parameters <- function(crop_data, prcnt_crop, basin_id){
   View(wq_crop_outputs)
   
 }
+
+# Crop cover timeseries
+
+# Import discharge data (2016-2018)
+dschrg_data <- read.csv(here("Data/Raw/forecast_mock_dataset_CR_py.csv"))
+
+# Convert timestamp to POSIXct
+dschrg_data$timestamp <- as.POSIXct(dschrg_data$timestamp,format="%Y-%m-%d %H:%M:%S",tz=Sys.timezone())
+
+#strt_time <- as.POSIXct("2016-05-20 00:00:00",format="%Y-%m-%d %H:%M:%S",tz=Sys.timezone())
+#end_time <- as.POSIXct("2016-09-16 00:00:00",format="%Y-%m-%d %H:%M:%S",tz=Sys.timezone())
+
+# Create crop cover timeseries dataframes
+us_crop_cover_ts <- data.frame(timestamp = dschrg_data$timestamp,
+                               year = year(dschrg_data$timestamp))
+
+ds_crop_cover_ts <- data.frame(timestamp = dschrg_data$timestamp, 
+                               year = year(dschrg_data$timestamp))
+
+# Calculate hours since seeding and harvest for each year
+us_crop_cover_ts$hrs_since_strt <- ifelse(us_crop_cover_ts$year == "2016", 
+                                     c(as.numeric(difftime(us_crop_cover_ts$timestamp, "2016-05-20 00:00:00", units = "hours"))),
+                                     ifelse(us_crop_cover_ts$year == "2017",
+                                            c(as.numeric(difftime(us_crop_cover_ts$timestamp, "2017-05-20 00:00:00", units = "hours"))),
+                                            ifelse(us_crop_cover_ts$year == "2018",
+                                                   c(as.numeric(difftime(us_crop_cover_ts$timestamp, "2018-05-20 00:00:00", units = "hours"))),
+                                                   "NULL")))
+
+us_crop_cover_ts$hrs_since_end <- ifelse(us_crop_cover_ts$year == "2016", 
+                                     c(as.numeric(difftime(us_crop_cover_ts$timestamp, "2016-09-16 00:00:00", units = "hours"))),
+                                     ifelse(us_crop_cover_ts$year == "2017",
+                                            c(as.numeric(difftime(us_crop_cover_ts$timestamp, "2017-09-16 00:00:00", units = "hours"))),
+                                            ifelse(us_crop_cover_ts$year == "2018",
+                                                   c(as.numeric(difftime(us_crop_cover_ts$timestamp, "2018-09-16 00:00:00", units = "hours"))),
+                                                   "NULL")))
+
+View(us_crop_cover_ts)
+
+
+ds_crop_cover_ts$hrs_since_strt <- ifelse(ds_crop_cover_ts$year == "2016", 
+                                          c(as.numeric(difftime(ds_crop_cover_ts$timestamp, "2016-05-18 00:00:00", units = "hours"))),
+                                          ifelse(ds_crop_cover_ts$year == "2017",
+                                                 c(as.numeric(difftime(ds_crop_cover_ts$timestamp, "2017-05-18 00:00:00", units = "hours"))),
+                                                 ifelse(ds_crop_cover_ts$year == "2018",
+                                                        c(as.numeric(difftime(ds_crop_cover_ts$timestamp, "2018-05-18 00:00:00", units = "hours"))),
+                                                        "NULL")))
+
+ds_crop_cover_ts$hrs_since_end <- ifelse(ds_crop_cover_ts$year == "2016", 
+                                         c(as.numeric(difftime(ds_crop_cover_ts$timestamp, "2016-09-08 00:00:00", units = "hours"))),
+                                         ifelse(ds_crop_cover_ts$year == "2017",
+                                                c(as.numeric(difftime(ds_crop_cover_ts$timestamp, "2017-09-08 00:00:00", units = "hours"))),
+                                                ifelse(ds_crop_cover_ts$year == "2018",
+                                                       c(as.numeric(difftime(ds_crop_cover_ts$timestamp, "2018-09-08 00:00:00", units = "hours"))),
+                                                       "NULL")))
+
+View(ds_crop_cover_ts)
