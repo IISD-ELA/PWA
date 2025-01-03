@@ -16,3 +16,8 @@ if (check_whitebox_binary()){
   message("Examples not run as Whitebox executable not found")
 }
 
+
+
+> test <- ncvar_get(era5_file, varid = "runoff", start = c(1,1,1), count = c(1,1,622344))
+> which(is.na(test))
+nc_open("Data/Processed/era5_runoff_wlat.nc")
