@@ -19,7 +19,10 @@ i_am("PWA.rproj")
 ```
 
 ```{r loading model results}
+# era5_results <- read_csv(here("raven/Triangular_Routing/CypressRiverT_ERA5_Hydrographs.csv"))
 era5_results <- read_csv(here("raven/Triangular_Routing/output/CypressRiver_Hydrographs.csv"))
+# era5_storage <- read_csv(here("raven/Triangular_Routing/CypressRiverT_ERA5_WatershedStorage.csv"))
+era5_storage <- read_csv(here("raven/Triangular_Routing/output/CypressRiver_WatershedStorage.csv"))
 
 
 ```
@@ -27,7 +30,7 @@ era5_results <- read_csv(here("raven/Triangular_Routing/output/CypressRiver_Hydr
 ```{r function}
 calculate_metrics <- function(results_tibble) {
   metrics <- list(
-    r = cor(results_tibble$`sub875 (observed) [m3/s]`, results_tibble$`sub875 [m3/s]`, use = "complete.obs"),
+    r = cor(results_tibble$`sub875 (observed) [m3/s]`, results_tibble$`sub875 [m3/s]`, use = "pairwise.complete.obs"),
     alpha = sd(results_tibble$`sub875 [m3/s]`, na.rm = TRUE) / sd(results_tibble$`sub875 (observed) [m3/s]`, na.rm = TRUE),
     beta = mean(results_tibble$`sub875 [m3/s]`, na.rm = TRUE) / mean(results_tibble$`sub875 (observed) [m3/s]`, na.rm = TRUE)
   )
@@ -36,7 +39,11 @@ calculate_metrics <- function(results_tibble) {
                           (metrics$alpha - 1)^2 +
                           (metrics$beta - 1)^2)
   
-  metrics$pbias <- pbias = (mean(results_tibble$`sub875 [m3/s]`)-mean(results_tibble$`sub875 (observed) [m3/s]`))/mean(results_tibble$`sub875 (observed) [m3/s]`)
+  metrics$pbias <- (mean(results_tibble$`sub875 [m3/s]`, na.rm = T)-mean(results_tibble$`sub875 (observed) [m3/s]`, na.rm = T))/mean(results_tibble$`sub875 (observed) [m3/s]`, na.rm = T)
+  
+  narm_rt <- results_tibble %>% filter(!is.na(`sub875 [m3/s]`) & !is.na(`sub875 (observed) [m3/s]`))
+  
+  metrics$NSE <- 1 - sum((narm_rt$`sub875 (observed) [m3/s]`- narm_rt$`sub875 [m3/s]`)^2)/sum(narm_rt$`sub875 (observed) [m3/s]`-mean(narm_rt$`sub875 (observed) [m3/s]`)^2)
   
   return(metrics)
 }
@@ -54,7 +61,7 @@ mean(era5_nowsc$`sub875 [m3/s]`)
 era5_nafill <- era5_results %>% 
   mutate(`sub875 (observed) [m3/s]` = ifelse(is.na(`sub875 (observed) [m3/s]`), 0, `sub875 (observed) [m3/s]`))
 
-era5_metrics$nafill <- calculate_metrics(era5_nafill)
+
 
 ```
 
@@ -65,6 +72,8 @@ era5_metrics$nafill <- calculate_metrics(era5_nafill)
 era5_metrics <- list()
 
 era5_metrics$all <- calculate_metrics(era5_results)
+
+era5_metrics$nafill <- calculate_metrics(era5_nafill)
 ```
 
 
