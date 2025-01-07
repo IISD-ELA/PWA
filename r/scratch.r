@@ -18,6 +18,6 @@ if (check_whitebox_binary()){
 
 
 
-> test <- ncvar_get(era5_file, varid = "runoff", start = c(1,1,1), count = c(1,1,622344))
-> which(is.na(test))
+test <- ncvar_get(era5_file, varid = "runoff", start = c(1,1,1), count = c(1,1,622344))
+which(is.na(test))
 nc_open("Data/Processed/era5_runoff_wlat.nc")
