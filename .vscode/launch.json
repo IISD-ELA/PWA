@@ -1,6 +1,7 @@
 {
     "version": "0.2.0",
     "configurations": [
+
       {
         "name": "Python: derive_grid_weights.py",
         "type": "python",
@@ -15,6 +16,15 @@
           "-s", "4046879",
           "-o", "md/TP/gridweights/subbasin4046879.txt"
         ]
+      },
+      {
+        "name": "Python: feature_creation.py",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/py_forecasting/feature_creation.py",
+            "console": "integratedTerminal"
       }
+
+
     ]
   }

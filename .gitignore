@@ -18,3 +18,5 @@ GpMessages/
 ImportLog/
 .pyHistory
 raven/**/output/
+*.csv
+*.xlsx

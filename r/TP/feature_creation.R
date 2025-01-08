@@ -87,3 +87,99 @@ wq_crop_parameters <- function(crop_data, prcnt_crop, basin_id){
   View(wq_crop_outputs)
   
 }
+
+# Crop cover timeseries
+
+crop_cover_ts <- function(us_seed_dates, us_hrvst_dates, ds_seed_dates, ds_hrvst_dates){
+  
+  # Declare location of current script
+  i_am("PWA.Rproj")
+  
+  # Import discharge data (2016-2018)
+  dschrg_data <- read.csv(here("Data/Raw/forecast_mock_dataset_CR_py.csv"))
+  
+  # Convert timestamp to POSIXct
+  dschrg_data$timestamp <- as.POSIXct(dschrg_data$timestamp,format="%Y-%m-%d %H:%M:%S",tz=Sys.timezone())
+  
+  # Create date variables for one year before start year
+  us_seed_date0 = as.Date(us_seed_dates[1]) - years(1)
+  ds_seed_date0 = as.Date(ds_seed_dates[1]) - years(1)
+  us_hrvst_date0 = as.Date(us_hrvst_dates[1]) - years(1)
+  ds_hrvst_date0 = as.Date(ds_hrvst_dates[1]) - years(1)
+  
+  # Assign seed dates to variables
+  for (i in seq_along(us_seed_dates)) {
+    assign(paste("us_seed_date", i, sep = ""), us_seed_dates[[i]])
+  }
+  
+  for (i in seq_along(ds_seed_dates)) {
+    assign(paste("ds_seed_date", i, sep = ""), ds_seed_dates[[i]])
+  }
+  
+  # Assign harvest dates to variables
+  for (i in seq_along(us_hrvst_dates)) {
+    assign(paste("us_hrvst_date", i, sep = ""), us_hrvst_dates[[i]])
+  }
+  
+  for (i in seq_along(ds_hrvst_dates)) {
+    assign(paste("ds_hrvst_date", i, sep = ""), ds_hrvst_dates[[i]])
+  }
+  
+  # Create crop cover timeseries dataframes
+  us_crop_cover_ts <- data.frame(timestamp = dschrg_data$timestamp)
+  
+  ds_crop_cover_ts <- data.frame(timestamp = dschrg_data$timestamp)
+  
+  # Calculate hours since seeding and harvest for each year
+  us_crop_cover_ts$hrs_since_strt <- ifelse(us_crop_cover_ts$timestamp < us_seed_date1,
+                                            c(as.numeric(difftime(us_crop_cover_ts$timestamp, us_seed_date0, units = "hours"))),
+                                            ifelse(us_crop_cover_ts$timestamp >= us_seed_date1 & us_crop_cover_ts$timestamp < us_seed_date2,
+                                                   c(as.numeric(difftime(us_crop_cover_ts$timestamp, us_seed_date1, units = "hours"))),
+                                                   ifelse(us_crop_cover_ts$timestamp >= us_seed_date2 & us_crop_cover_ts$timestamp < us_seed_date3,
+                                                          c(as.numeric(difftime(us_crop_cover_ts$timestamp, us_seed_date2, units = "hours"))),
+                                                          ifelse(us_crop_cover_ts$timestamp >= us_seed_date3,
+                                                                 c(as.numeric(difftime(us_crop_cover_ts$timestamp, us_seed_date3, units = "hours"))),
+                                                                 "NULL"))))
+  
+  us_crop_cover_ts$hrs_since_end <- ifelse(us_crop_cover_ts$timestamp < us_hrvst_date1,
+                                           c(as.numeric(difftime(us_crop_cover_ts$timestamp, us_hrvst_date0, units = "hours"))),
+                                           ifelse(us_crop_cover_ts$timestamp >= us_hrvst_date1 & us_crop_cover_ts$timestamp < us_hrvst_date2,
+                                                  c(as.numeric(difftime(us_crop_cover_ts$timestamp, us_hrvst_date1, units = "hours"))),
+                                                  ifelse(us_crop_cover_ts$timestamp >= us_hrvst_date2 & us_crop_cover_ts$timestamp < us_hrvst_date3,
+                                                         c(as.numeric(difftime(us_crop_cover_ts$timestamp, us_hrvst_date2, units = "hours"))),
+                                                         ifelse(us_crop_cover_ts$timestamp >= us_hrvst_date3,
+                                                                c(as.numeric(difftime(us_crop_cover_ts$timestamp, us_hrvst_date3, units = "hours"))),
+                                                                "NULL"))))
+  
+  
+  View(us_crop_cover_ts)
+  
+  
+  ds_crop_cover_ts$hrs_since_strt <- ifelse(ds_crop_cover_ts$timestamp < ds_seed_date1,
+                                            c(as.numeric(difftime(ds_crop_cover_ts$timestamp, ds_seed_date0, units = "hours"))),
+                                            ifelse(ds_crop_cover_ts$timestamp >= ds_seed_date1 & ds_crop_cover_ts$timestamp < ds_seed_date2,
+                                                   c(as.numeric(difftime(ds_crop_cover_ts$timestamp, ds_seed_date1, units = "hours"))),
+                                                   ifelse(ds_crop_cover_ts$timestamp >= ds_seed_date2 & ds_crop_cover_ts$timestamp < ds_seed_date3,
+                                                          c(as.numeric(difftime(ds_crop_cover_ts$timestamp, ds_seed_date2, units = "hours"))),
+                                                          ifelse(ds_crop_cover_ts$timestamp >= ds_seed_date3,
+                                                                 c(as.numeric(difftime(ds_crop_cover_ts$timestamp, ds_seed_date3, units = "hours"))),
+                                                                 "NULL"))))
+  
+  ds_crop_cover_ts$hrs_since_end <- ifelse(ds_crop_cover_ts$timestamp < ds_hrvst_date1,
+                                           c(as.numeric(difftime(ds_crop_cover_ts$timestamp, ds_hrvst_date0, units = "hours"))),
+                                           ifelse(ds_crop_cover_ts$timestamp >= ds_hrvst_date1 & ds_crop_cover_ts$timestamp < ds_hrvst_date2,
+                                                  c(as.numeric(difftime(ds_crop_cover_ts$timestamp, ds_hrvst_date1, units = "hours"))),
+                                                  ifelse(ds_crop_cover_ts$timestamp >= ds_hrvst_date2 & ds_crop_cover_ts$timestamp < ds_hrvst_date3,
+                                                         c(as.numeric(difftime(ds_crop_cover_ts$timestamp, ds_hrvst_date2, units = "hours"))),
+                                                         ifelse(ds_crop_cover_ts$timestamp >= ds_hrvst_date3,
+                                                                c(as.numeric(difftime(ds_crop_cover_ts$timestamp, ds_hrvst_date3, units = "hours"))),
+                                                                "NULL"))))
+  
+  View(ds_crop_cover_ts)
+  
+}
+
+crop_cover_ts(us_seed_dates = c("2016-05-20 00:00:00", "2017-05-20 00:00:00", "2018-05-20 00:00:00"),
+              us_hrvst_dates = c("2016-09-16 00:00:00", "2017-09-16 00:00:00", "2018-09-16 00:00:00"), 
+              ds_seed_dates = c("2016-05-18 00:00:00", "2017-05-18 00:00:00", "2018-05-18 00:00:00"),
+              ds_hrvst_dates = c("2016-09-08 00:00:00", "2017-09-08 00:00:00", "2018-09-08 00:00:00"))
