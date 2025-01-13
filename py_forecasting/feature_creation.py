@@ -298,3 +298,11 @@ def calc_nutrient_load(df, param: str):
     
     return df_out
 
+#Read and combine CSV files, grouping by 'timestamp_ccentral', df short for dataframe
+def read_and_merge_csv(files, folder):
+    data_paths = [folder + f for f in files]
+    merged_df = pd.read_csv(data_paths[0])
+    for file in data_paths[1:]:
+        df = pd.read_csv(file)
+        merged_df = pd.merge(merged_df, df, on='timestamp_ccentral', how='outer')
+    return merged_df
