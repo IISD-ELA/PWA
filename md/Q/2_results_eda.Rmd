@@ -19,10 +19,10 @@ i_am("PWA.rproj")
 ```
 
 ```{r loading model results}
-# era5_results <- read_csv(here("raven/Triangular_Routing/CypressRiverT_ERA5_Hydrographs.csv"))
-era5_results <- read_csv(here("raven/Triangular_Routing/output/CypressRiver_Hydrographs.csv"))
-# era5_storage <- read_csv(here("raven/Triangular_Routing/CypressRiverT_ERA5_WatershedStorage.csv"))
-era5_storage <- read_csv(here("raven/Triangular_Routing/output/CypressRiver_WatershedStorage.csv"))
+era5_results <- read_csv(here("raven/Triangular_Routing/CypressRiverT_ERA5_Hydrographs.csv"))
+# era5_results <- read_csv(here("raven/Triangular_Routing/output/CypressRiver_Hydrographs.csv"))
+era5_storage <- read_csv(here("raven/Triangular_Routing/CypressRiverT_ERA5_WatershedStorage.csv"))
+# era5_storage <- read_csv(here("raven/Triangular_Routing/output/CypressRiver_WatershedStorage.csv"))
 
 
 ```

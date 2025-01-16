@@ -46,6 +46,11 @@ attr(load_rdrs, "params") <- list(f_path = "the path to the folder containing al
 
 wq_crop_parameters <- function(crop_data, prcnt_crop, basin_id){
   
+  # TS COMMENT
+  # # #
+  # THIS FUNCTION WILL NEED TO BE ADJUSTED IN FUTURE MODELS TO 
+  # PARAMETERIZE OR DEDUCE THE YEAR RANGE AND THE LIST OF SUB-BASINS
+  
   # Declare location of current script
   i_am("PWA.Rproj")
   
@@ -153,7 +158,6 @@ crop_cover_ts <- function(us_seed_dates, us_hrvst_dates, ds_seed_dates, ds_hrvst
   
   
   View(us_crop_cover_ts)
-  
   
   ds_crop_cover_ts$hrs_since_strt <- ifelse(ds_crop_cover_ts$timestamp < ds_seed_date1,
                                             c(as.numeric(difftime(ds_crop_cover_ts$timestamp, ds_seed_date0, units = "hours"))),
