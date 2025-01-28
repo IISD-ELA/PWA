@@ -181,9 +181,12 @@ crop_cover_ts <- function(us_seed_dates, us_hrvst_dates, ds_seed_dates, ds_hrvst
   
   View(ds_crop_cover_ts)
   
+  write.csv(us_crop_cover_ts, "Data/Processed/us_crop_cover_ts.csv")
+  write.csv(ds_crop_cover_ts, "Data/Processed/ds_crop_cover_ts.csv")
 }
 
 crop_cover_ts(us_seed_dates = c("2016-05-20 00:00:00", "2017-05-20 00:00:00", "2018-05-20 00:00:00"),
               us_hrvst_dates = c("2016-09-16 00:00:00", "2017-09-16 00:00:00", "2018-09-16 00:00:00"), 
               ds_seed_dates = c("2016-05-18 00:00:00", "2017-05-18 00:00:00", "2018-05-18 00:00:00"),
               ds_hrvst_dates = c("2016-09-08 00:00:00", "2017-09-08 00:00:00", "2018-09-08 00:00:00"))
+
