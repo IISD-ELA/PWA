@@ -128,8 +128,9 @@ def calc_param_site_features_hrs_ago(df, param: str, site: str, hours_ago_start:
                      closed = 'left')
     
     # Calculate the number of positions to shift depending on hours-ago range
-    shift_scalar = hours_ago_start//hours_offset
-    shift_num = shift_scalar*hours_offset
+    # shift_scalar = hours_ago_start//hours_offset
+    # shift_num = shift_scalar*hours_offset
+    shift_num = hours_ago_start-1
     
     
     # Calculate mean, max, min, and max-min range for param concentration
@@ -234,8 +235,12 @@ def calc_discharge_site_features_hrs_ago(df, site: str, hours_ago_start: int,
     
     
     # Calculate the number of positions to shift depending on hours-ago range
-    shift_scalar = hours_ago_start//hours_offset
-    shift_num = shift_scalar*hours_offset
+    # if hours_ago_start >= hours_offset:
+    #     shift_scalar = hours_ago_start//hours_offset
+    #     shift_num = shift_scalar*hours_offset
+    # else:
+    #     shift_num = hours_ago_start
+    shift_num = hours_ago_start-1
     
     
     # Calculate mean, max, min, and max-min range for discharge
@@ -306,3 +311,11 @@ def read_and_merge_csv(files, folder):
         df = pd.read_csv(file)
         merged_df = pd.merge(merged_df, df, on='timestamp_ccentral', how='outer')
     return merged_df
+
+# # Debug
+# import pandas as pd
+# full_dataset = pd.read_csv("py_forecasting/met_ts_t2m_cdir_CR.csv")
+# dschrg_cr_13_48_features = calc_discharge_site_features_hrs_ago(df=full_dataset,
+#                                                         site='cr',
+#                                                         hours_ago_start=13,
+#                                                         hours_ago_end=48)
