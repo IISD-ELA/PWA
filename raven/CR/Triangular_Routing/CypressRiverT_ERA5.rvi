@@ -18,7 +18,7 @@
 :HydrologicProcesses
   :Precipitation     PRECIP_RAVEN             ATMOS_PRECIP     PONDED_WATER          # Moves stream input(s) from ATMOS_PRECIP to PONDED_WATER storage (waiting for runoff). Use DEFAULT PRECIP_RAVEN method.
   :Abstraction	     ABST_FILL		      PONDED_WATER     DEPRESSION
-  :Flush             RAVEN_DEFAULT            PONDED_WATER     SURFACE_WATER        # Moves water from PONDED_WATER to SURFACE_WATER (routed to outlet). Use DEFAULT RAVEN_DEFAULT method.
+  :Flush             RAVEN_DEFAULT            PONDED_WATER     SURFACE_WATER         # Moves water from PONDED_WATER to SURFACE_WATER (routed to outlet). Use DEFAULT RAVEN_DEFAULT method.
   :Seepage 	     SEEP_LINEAR 	      DEPRESSION       SOIL[0]
 :EndHydrologicProcesses
 

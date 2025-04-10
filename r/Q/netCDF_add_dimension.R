@@ -133,7 +133,13 @@ ncdf_add_dim <- function(path_in, path_out, new_file_name, dim1_name, dim2_name,
 }
 
 
-
+ncdf_add_dim(path_in = 'Data/Raw/manning/PHyDAP/PHyDAP_era5_hourly_upland_runoff.nc',
+             path_out = 'Data/Processed/manning/Runoff',
+             new_file_name = 'MC_runoff',
+             dim1_name = 'time_hrs',
+             dim2_name = 'HYBAS_ID',
+             var_name = 'upland_runoff',
+             var_units = 'mm/h')
 
 #######################
 # Previous Code
