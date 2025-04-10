@@ -1,0 +1,6 @@
+{
+  "verbose_mode": true,
+  "working_directory": "c:\\Users\\emilito\\Documents\\PWA\\Data\\Raw\\manning\\WB_Data\\",
+  "compress_rasters": false,
+  "max_procs": -1
+}

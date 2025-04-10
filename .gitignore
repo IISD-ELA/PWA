@@ -11,7 +11,6 @@ PWA.gdb
 Data
 CR_delineation
 CR_project
-WBT
 *.Rproj
 *.tif*
 *.tfw
