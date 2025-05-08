@@ -20,3 +20,6 @@ ImportLog/
 raven/**/output/
 *.csv
 *.xlsx
+*.pyc
+__pycache__/
+.vscode/
