@@ -15,31 +15,7 @@ def run_raven(raven_model, data_cal="data/calibration"):
     finally:
         os.chdir(prev_cwd)
 
-def read_rv_diag(rv_path: str, diag_names: list[str] = None) -> dict:
-    """ 
-    Get Raven diagnostic data from the output CSV file.
-    """
-    output_dir = os.path.join(rv_path, "output")
-    diagnostic_csv = None
-    for file in os.listdir(output_dir):
-        if file.lower().endswith(".csv") and "diagnostic" in file.lower():
-            diagnostic_csv = os.path.join(output_dir, file)
-            break
 
-    diagnostic_data = {}
-    if diagnostic_csv and os.path.isfile(diagnostic_csv):
-        df_diag = pd.read_csv(diagnostic_csv)
-        diagnostic_data = df_diag.to_dict(orient="list")
-        print(f"Loaded diagnostic data from {diagnostic_csv}")
-    else:
-        print("No diagnostic CSV file found in output directory.")
-    
-
-    if diag_names is None:
-        return diagnostic_data
-    if isinstance(diag_names, list):
-        filtered_data = {name: diagnostic_data.get(name, []) for name in diag_names}
-        return filtered_data if any(filtered_data.values()) else diagnostic_data
 
 
 class RavenFile:
@@ -142,3 +118,80 @@ class RavenFile:
             rvh_txt = rvh_txt.replace("H578_area", str(H578_area))
 
             self.write(rvh_txt)
+
+
+def read_rv_diag(rv_path: str, diag_names: list[str] = None) -> dict:
+    """ 
+    Get Raven diagnostic data from the output CSV file.
+    """
+    output_dir = os.path.join(rv_path, "output")
+    diagnostic_csv = None
+    for file in os.listdir(output_dir):
+        if file.lower().endswith(".csv") and "diagnostic" in file.lower():
+            diagnostic_csv = os.path.join(output_dir, file)
+            break
+
+    diagnostic_data = {}
+    if diagnostic_csv and os.path.isfile(diagnostic_csv):
+        df_diag = pd.read_csv(diagnostic_csv)
+        diagnostic_data = df_diag.to_dict(orient="list")
+        print(f"Loaded diagnostic data from {diagnostic_csv}")
+    else:
+        print("No diagnostic CSV file found in output directory.")
+    
+
+    if diag_names is None:
+        return diagnostic_data
+    if isinstance(diag_names, list):
+        filtered_data = {name: diagnostic_data.get(name, []) for name in diag_names}
+        return filtered_data if any(filtered_data.values()) else diagnostic_data
+
+class RavenHydrograph:
+    """
+    A class to handle Raven hydrograph data.
+    """
+
+    def __init__(self, rv_path: str):
+        self.rv_path = rv_path
+        self.data = self.read_hydrograph()
+
+    def read_hydrograph(self) -> pd.DataFrame:
+        """
+        Read hydrograph data from the output CSV file.
+        """
+        output_dir = os.path.join(self.rv_path, "output")
+        output_csv = None
+        for file in os.listdir(output_dir):
+            if file.lower().endswith(".csv") and "hydrographs" in file.lower():
+                output_csv = os.path.join(output_dir, file)
+                break
+
+        if output_csv and os.path.isfile(output_csv):
+            df_output = pd.read_csv(output_csv)
+            print(f"Loaded hydrograph data from {output_csv}")
+            return df_output
+        else:
+            print("No hydrograph CSV file found in output directory.")
+            return pd.DataFrame()
+
+    def read_sim(self, subbasin_id) -> pd.DataFrame:
+        """
+        Pull Raven simulated data from the hydrographs table.
+        """
+        for col in self.data.columns:
+            if subbasin_id in col.lower() and not "observed" in col.lower():
+                simulated = self.data[col]
+                break
+        return simulated
+
+    
+    def read_obs(self) -> pd.DataFrame:
+        """
+        Pull Raven observed data from the hydrographs table.
+        """
+        for col in self.data.columns:
+            if "observed" in col.lower():
+                observed = self.data[col]
+                break
+        return observed
+        
