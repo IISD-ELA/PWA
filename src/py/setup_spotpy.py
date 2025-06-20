@@ -85,16 +85,20 @@ class spot_setup_rvn(object):
         subbasin_id = "sub875"
 
         # Return the simulated discharge time series for the specified subbasin
-        return self.hydrograph.read_sim(subbasin_id, refresh=True)
+        sim = self.hydrograph.read_sim(subbasin_id, start_yr=2010, end_yr=2021, refresh=True).reset_index(drop=True)
+        # sim_2003 = sim.loc[sim["date"].year >= 2003]
+        return sim
     
+
+
     def evaluation(self, diag_names=None):
         """
         Get model diagnostics after running the Raven model.
         """
         # read output
-        obs = self.hydrograph.read_obs(refresh=True)
+        obs = self.hydrograph.read_obs(start_yr=2010, end_yr=2021, refresh=True).reset_index(drop=True)
         return obs
-    
+
     def objectivefunction(self, simulation=None, evaluation=None):
         """
         Calculate the objective function value to assess model performance.
@@ -116,9 +120,19 @@ class spot_setup_rvn(object):
         if simulation is None or evaluation is None:
             raise ValueError("Simulation and evaluation data must be provided.")
         
+        if len(simulation) != len(evaluation):
+            raise ValueError("Simulation and evaluation data must have the same length.")
+        
+        non_null = evaluation.notnull()
+        
+        valid_sim = simulation[non_null]
+        valid_eval = evaluation[non_null]
+        if valid_sim.empty or valid_eval.empty:
+            raise ValueError("Simulation and evaluation data must contain non-null values.")
+
         # Calculate NSE
         # NSE is already adjusted in the built-in spotpy function
-        nse = sp.objectivefunctions.nashsutcliffe(simulation, evaluation)
+        nse = 1-((np.sum((valid_sim - valid_eval)**2)) / np.sum((valid_sim - np.mean(valid_eval))**2))
 
         # Force this into a scalar value (since sim and eval are pd.series,
         # the spotpy nse function might sometimes return arrays, which is BAD,

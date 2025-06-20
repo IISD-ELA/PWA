@@ -135,18 +135,18 @@ class RavenFile:
             rvh_txt = rvh_txt.replace("seep_fact", str(seep_k))
             
             # Calculate basin area values similarly by multiplying the basin_fact by constants
-            H567_area = basin_fact * 56.69
-            H568_area = basin_fact * 17.92
-            H569_area = basin_fact * 5.41
-            H570_area = basin_fact * 8.16
-            H571_area = basin_fact * 23.03
-            H572_area = basin_fact * 24.98
-            H573_area = basin_fact * 18.29
-            H574_area = basin_fact * 15.84
-            H575_area = basin_fact * 2.27
-            H576_area = basin_fact * 2.76
-            H577_area = basin_fact * 2.16
-            H578_area = basin_fact * 92.77
+            H567_area = basin_fact * 53.9908
+            H568_area = basin_fact * 17.0623
+            H569_area = basin_fact * 5.1519
+            H570_area = basin_fact * 7.7757
+            H571_area = basin_fact * 21.9306
+            H572_area = basin_fact * 23.7860
+            H573_area = basin_fact * 17.4219
+            H574_area = basin_fact * 15.0882
+            H575_area = basin_fact * 2.1640
+            H576_area = basin_fact * 2.6296
+            H577_area = basin_fact * 2.0595
+            H578_area = basin_fact * 88.3478
 
             # Replace area placeholders with these computed values
             rvh_txt = rvh_txt.replace("H567_area", str(H567_area))
@@ -256,13 +256,14 @@ class RavenHydrograph:
         # If the hydrograph CSV was found, load into a DataFrame
         if output_csv and os.path.isfile(output_csv):
             df_output = pd.read_csv(output_csv)
+            df_output["date_time"] = pd.to_datetime((df_output["date"] + " " + df_output["hour"]), errors='coerce')
             print(f"Loaded hydrograph data from {output_csv}")
             return df_output
         else:
             print("No hydrograph CSV file found in output directory.")
             return pd.DataFrame() # Return empty DataFrame if not found
 
-    def read_sim(self, subbasin_id, refresh=False) -> pd.DataFrame:
+    def read_sim(self, subbasin_id, start_yr, end_yr, refresh=False) -> pd.DataFrame:
         """
         Extract simulated discharge data for a given subbasin from the hydrograph DataFrame.
 
@@ -276,15 +277,20 @@ class RavenHydrograph:
         """
         if refresh:
             self.data = self.read_hydrograph()
+            # self.data = self.data.loc[self.data["date"].dt.year.between(start_yr, end_yr)]
+
+        self.eval = self.data.loc[self.data["date_time"].dt.year.between(start_yr, end_yr)]
 
         # Look through columns and find one that contains the subbasin id and is not observed data
-        for col in self.data.columns:
+        for col in self.eval.columns:
             if subbasin_id in col.lower() and not "observed" in col.lower():
-                simulated = self.data[col]
+                simulated = self.eval[col]
                 break
+            
+
         return simulated
 
-    def read_obs(self, refresh=False) -> pd.DataFrame:
+    def read_obs(self, start_yr, end_yr, refresh=False) -> pd.DataFrame:
         """
         Extract observed discharge data from the hydrograph DataFrame.
 
@@ -294,11 +300,13 @@ class RavenHydrograph:
         """
         if refresh:
             self.data = self.read_hydrograph()
-            
+            # self.data = self.data.loc[self.data["date"].dt.year.between(start_yr, end_yr)]
+
+        self.eval = self.data.loc[self.data["date_time"].dt.year.between(start_yr, end_yr)]
+
         # Look for any column with 'observed' in its name
-        for col in self.data.columns:
+        for col in self.eval.columns:
             if "observed" in col.lower():
-                observed = self.data[col]
+                observed = self.eval[col]
                 break
         return observed
-        
