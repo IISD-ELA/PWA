@@ -76,7 +76,9 @@ class RavenFile:
             return f.read()
         
 
-    def rvp_update(self, dep_fact, seep_k, basin_fact):
+    def rvp_update(self, dep_fact, seep_k, basin_fact_567, basin_fact_568, basin_fact_569, basin_fact_570,
+                   basin_fact_571, basin_fact_572, basin_fact_573, basin_fact_574, basin_fact_575,
+                   basin_fact_576, basin_fact_577, basin_fact_578):
         """
         Update the RVP file with new parameters.
         """
@@ -92,7 +94,9 @@ class RavenFile:
             # Write the text with the actual parameter value to the actual .rvp file
             self.write(rvp_txt)
 
-    def rvh_update(self, dep_fact, seep_k, basin_fact):
+    def rvh_update(self, dep_fact, seep_k, basin_fact_567, basin_fact_568, basin_fact_569, basin_fact_570,
+                   basin_fact_571, basin_fact_572, basin_fact_573, basin_fact_574, basin_fact_575,
+                   basin_fact_576, basin_fact_577, basin_fact_578):
         """
         Update the RVH file with new parameters.
         """
@@ -135,18 +139,18 @@ class RavenFile:
             rvh_txt = rvh_txt.replace("seep_fact", str(seep_k))
             
             # Calculate basin area values similarly by multiplying the basin_fact by constants
-            H567_area = basin_fact * 53.9908
-            H568_area = basin_fact * 17.0623
-            H569_area = basin_fact * 5.1519
-            H570_area = basin_fact * 7.7757
-            H571_area = basin_fact * 21.9306
-            H572_area = basin_fact * 23.7860
-            H573_area = basin_fact * 17.4219
-            H574_area = basin_fact * 15.0882
-            H575_area = basin_fact * 2.1640
-            H576_area = basin_fact * 2.6296
-            H577_area = basin_fact * 2.0595
-            H578_area = basin_fact * 88.3478
+            H567_area = basin_fact_567 * 53.9908
+            H568_area = basin_fact_568 * 17.0623
+            H569_area = basin_fact_569 * 5.1519
+            H570_area = basin_fact_570 * 7.7757
+            H571_area = basin_fact_571 * 21.9306
+            H572_area = basin_fact_572 * 23.7860
+            H573_area = basin_fact_573 * 17.4219
+            H574_area = basin_fact_574 * 15.0882
+            H575_area = basin_fact_575 * 2.1640
+            H576_area = basin_fact_576 * 2.6296
+            H577_area = basin_fact_577 * 2.0595
+            H578_area = basin_fact_578 * 88.3478
 
             # Replace area placeholders with these computed values
             rvh_txt = rvh_txt.replace("H567_area", str(H567_area))
@@ -263,7 +267,7 @@ class RavenHydrograph:
             print("No hydrograph CSV file found in output directory.")
             return pd.DataFrame() # Return empty DataFrame if not found
 
-    def read_sim(self, subbasin_id, start_yr, end_yr, refresh=False) -> pd.DataFrame:
+    def read_sim(self, subbasin_id, start_yr, end_yr, spring_only = True, refresh=False) -> pd.DataFrame:
         """
         Extract simulated discharge data for a given subbasin from the hydrograph DataFrame.
 
@@ -281,6 +285,9 @@ class RavenHydrograph:
 
         self.eval = self.data.loc[self.data["date_time"].dt.year.between(start_yr, end_yr)]
 
+        if spring_only:
+            self.eval = self.eval.loc[self.eval["date_time"].dt.month.lt(7)]
+
         # Look through columns and find one that contains the subbasin id and is not observed data
         for col in self.eval.columns:
             if subbasin_id in col.lower() and not "observed" in col.lower():
@@ -290,7 +297,7 @@ class RavenHydrograph:
 
         return simulated
 
-    def read_obs(self, start_yr, end_yr, refresh=False) -> pd.DataFrame:
+    def read_obs(self, start_yr, end_yr, spring_only = True, refresh=False) -> pd.DataFrame:
         """
         Extract observed discharge data from the hydrograph DataFrame.
 
@@ -303,6 +310,9 @@ class RavenHydrograph:
             # self.data = self.data.loc[self.data["date"].dt.year.between(start_yr, end_yr)]
 
         self.eval = self.data.loc[self.data["date_time"].dt.year.between(start_yr, end_yr)]
+
+        if spring_only:
+            self.eval = self.eval.loc[self.eval["date_time"].dt.month.lt(7)]
 
         # Look for any column with 'observed' in its name
         for col in self.eval.columns:

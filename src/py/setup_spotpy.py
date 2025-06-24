@@ -28,7 +28,18 @@ class spot_setup_rvn(object):
         self.param_distributions = [
                         sp.parameter.Uniform("dep_fact", low=0.80, high=1.20),
                         sp.parameter.Uniform("seep_k", low=0.00, high=0.10),
-                        sp.parameter.Uniform("basin_fact", low=0.80, high=1.20)
+                        sp.parameter.Uniform("basin_fact_567", low=0.80, high=1.20),
+                        sp.parameter.Uniform("basin_fact_568", low=0.80, high=1.20),
+                        sp.parameter.Uniform("basin_fact_569", low=0.80, high=1.20),
+                        sp.parameter.Uniform("basin_fact_570", low=0.80, high=1.20),
+                        sp.parameter.Uniform("basin_fact_571", low=0.80, high=1.20),
+                        sp.parameter.Uniform("basin_fact_572", low=0.80, high=1.20),
+                        sp.parameter.Uniform("basin_fact_573", low=0.80, high=1.20),
+                        sp.parameter.Uniform("basin_fact_574", low=0.80, high=1.20),
+                        sp.parameter.Uniform("basin_fact_575", low=0.80, high=1.20),
+                        sp.parameter.Uniform("basin_fact_576", low=0.80, high=1.20),
+                        sp.parameter.Uniform("basin_fact_577", low=0.80, high=1.20),
+                        sp.parameter.Uniform("basin_fact_578", low=0.80, high=1.20)
                     ]
     
     def parameters(self):
@@ -68,12 +79,12 @@ class spot_setup_rvn(object):
                 # Create a RavenFile object representing the .rvp file for the model
                 rvp = rv.RavenFile(f"{self.model_name}.rvp", calib_dir=self.model_path, extension = "rvp")
                 # Update the .rvp file with the parameter values from param_vector
-                rvp.rvp_update(param_vector[0], param_vector[1], param_vector[2])
+                rvp.rvp_update(*param_vector)
             elif ext == "rvh":
                 # Create a RavenFile object representing the .rvh file for the model
                 rvh = rv.RavenFile(f"{self.model_name}.rvh", calib_dir=self.model_path,  extension = "rvh")
                 # Update the .rvh file with the parameter values from param_vector
-                rvh.rvh_update(param_vector[0], param_vector[1], param_vector[2])    
+                rvh.rvh_update(*param_vector)    
             else:
                 # Raise an error if the file extension is not supported
                 raise ValueError(f"Unsupported file extension: {ext}")
@@ -85,7 +96,7 @@ class spot_setup_rvn(object):
         subbasin_id = "sub875"
 
         # Return the simulated discharge time series for the specified subbasin
-        sim = self.hydrograph.read_sim(subbasin_id, start_yr=2010, end_yr=2021, refresh=True).reset_index(drop=True)
+        sim = self.hydrograph.read_sim(subbasin_id, start_yr=2010, end_yr=2021, spring_only = True, refresh=True).reset_index(drop=True)
         # sim_2003 = sim.loc[sim["date"].year >= 2003]
         return sim
     
@@ -96,7 +107,7 @@ class spot_setup_rvn(object):
         Get model diagnostics after running the Raven model.
         """
         # read output
-        obs = self.hydrograph.read_obs(start_yr=2010, end_yr=2021, refresh=True).reset_index(drop=True)
+        obs = self.hydrograph.read_obs(start_yr=2010, end_yr=2021, spring_only = True, refresh=True).reset_index(drop=True)
         return obs
 
     def objectivefunction(self, simulation=None, evaluation=None):
@@ -132,15 +143,18 @@ class spot_setup_rvn(object):
 
         # Calculate NSE
         # NSE is already adjusted in the built-in spotpy function
-        nse = 1-((np.sum((valid_sim - valid_eval)**2)) / np.sum((valid_sim - np.mean(valid_eval))**2))
+        kge_adj = 1-np.sqrt((2*(np.corrcoef(valid_sim, valid_eval)[0,1]-1))**2 + \
+                         (1-(np.mean(valid_sim)/np.mean(valid_eval)))**2 + \
+                         ((1-(np.std(valid_sim)/np.std(valid_eval)))/2)**2 \
+        )
 
         # Force this into a scalar value (since sim and eval are pd.series,
         # the spotpy nse function might sometimes return arrays, which is BAD,
         # so we must prevent this from happening!)
-        nse = np.squeeze(nse).item()
+        kge_adj = np.squeeze(kge_adj).item()
 
-        print("Ajusted Nash-Sutcliffe Efficiency (NSE):", nse)
-        return nse
+        print("Ajusted Kling-Gupta Efficiency (KGE):", kge_adj)
+        return kge_adj
 
 
         
