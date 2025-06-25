@@ -13,7 +13,7 @@ class spot_setup_rvn(object):
     This class integrates the Raven model output with SpotPy's parameter sampling and evaluation framework.
     """
     
-    def __init__(self, model_name, calib_dir, obj_fn = "kge_adj"):
+    def __init__(self, model_name, calib_dir, obj_fn = "kge_adj", split_areas = False, spring_eval = True):
         """
         Initialize the calibration setup.
 
@@ -25,23 +25,33 @@ class spot_setup_rvn(object):
         self.model_path = calib_dir
         self.model_name = model_name
         self.hydrograph = rv.RavenHydrograph(self.model_path)
-        self.param_distributions = [
-                        sp.parameter.Uniform("dep_fact", low=0.80, high=1.20),
-                        sp.parameter.Uniform("seep_k", low=0.00, high=0.10),
-                        sp.parameter.Uniform("basin_fact_567", low=0.80, high=1.20),
-                        sp.parameter.Uniform("basin_fact_568", low=0.80, high=1.20),
-                        sp.parameter.Uniform("basin_fact_569", low=0.80, high=1.20),
-                        sp.parameter.Uniform("basin_fact_570", low=0.80, high=1.20),
-                        sp.parameter.Uniform("basin_fact_571", low=0.80, high=1.20),
-                        sp.parameter.Uniform("basin_fact_572", low=0.80, high=1.20),
-                        sp.parameter.Uniform("basin_fact_573", low=0.80, high=1.20),
-                        sp.parameter.Uniform("basin_fact_574", low=0.80, high=1.20),
-                        sp.parameter.Uniform("basin_fact_575", low=0.80, high=1.20),
-                        sp.parameter.Uniform("basin_fact_576", low=0.80, high=1.20),
-                        sp.parameter.Uniform("basin_fact_577", low=0.80, high=1.20),
-                        sp.parameter.Uniform("basin_fact_578", low=0.80, high=1.20)
-                    ]
+        if split_areas:
+            self.param_distributions = [
+                            sp.parameter.Uniform("dep_fact", low=0.80, high=1.20),
+                            sp.parameter.Uniform("seep_k", low=0.00, high=0.10),
+                            sp.parameter.Uniform("basin_fact_567", low=0.80, high=1.20),
+                            sp.parameter.Uniform("basin_fact_568", low=0.80, high=1.20),
+                            sp.parameter.Uniform("basin_fact_569", low=0.80, high=1.20),
+                            sp.parameter.Uniform("basin_fact_570", low=0.80, high=1.20),
+                            sp.parameter.Uniform("basin_fact_571", low=0.80, high=1.20),
+                            sp.parameter.Uniform("basin_fact_572", low=0.80, high=1.20),
+                            sp.parameter.Uniform("basin_fact_573", low=0.80, high=1.20),
+                            sp.parameter.Uniform("basin_fact_574", low=0.80, high=1.20),
+                            sp.parameter.Uniform("basin_fact_575", low=0.80, high=1.20),
+                            sp.parameter.Uniform("basin_fact_576", low=0.80, high=1.20),
+                            sp.parameter.Uniform("basin_fact_577", low=0.80, high=1.20),
+                            sp.parameter.Uniform("basin_fact_578", low=0.80, high=1.20)
+                        ]
+            self.param_set = "splitbasin"
+        else:
+            self.param_distributions = [
+                            sp.parameter.Uniform("dep_fact", low=0.80, high=1.20),
+                            sp.parameter.Uniform("seep_k", low=0.00, high=0.10),
+                            sp.parameter.Uniform("basin_fact", low=0.80, high=1.20)
+                        ]
+            self.param_set = "base"
         self.obj_fn = obj_fn
+        self.spring_eval = spring_eval
     
     def parameters(self):
         print("Generated parameters for SpotPy calibration:", sp.parameter.generate(self.param_distributions))
@@ -80,12 +90,12 @@ class spot_setup_rvn(object):
                 # Create a RavenFile object representing the .rvp file for the model
                 rvp = rv.RavenFile(f"{self.model_name}.rvp", calib_dir=self.model_path, extension = "rvp")
                 # Update the .rvp file with the parameter values from param_vector
-                rvp.rvp_update(*param_vector)
+                rvp.rvp_update(self.param_set, param_vector)
             elif ext == "rvh":
                 # Create a RavenFile object representing the .rvh file for the model
                 rvh = rv.RavenFile(f"{self.model_name}.rvh", calib_dir=self.model_path,  extension = "rvh")
                 # Update the .rvh file with the parameter values from param_vector
-                rvh.rvh_update(*param_vector)    
+                rvh.rvh_update(self.param_set, param_vector)    
             else:
                 # Raise an error if the file extension is not supported
                 raise ValueError(f"Unsupported file extension: {ext}")
@@ -97,7 +107,7 @@ class spot_setup_rvn(object):
         subbasin_id = "sub875"
 
         # Return the simulated discharge time series for the specified subbasin
-        sim = self.hydrograph.read_sim(subbasin_id, start_yr=2010, end_yr=2021, spring_only = True, refresh=True).reset_index(drop=True)
+        sim = self.hydrograph.read_sim(subbasin_id, start_yr=2010, end_yr=2021, spring_only = self.spring_eval, refresh=True).reset_index(drop=True)
         # sim_2003 = sim.loc[sim["date"].year >= 2003]
         return sim
     
@@ -108,7 +118,7 @@ class spot_setup_rvn(object):
         Get model diagnostics after running the Raven model.
         """
         # read output
-        obs = self.hydrograph.read_obs(start_yr=2010, end_yr=2021, spring_only = True, refresh=True).reset_index(drop=True)
+        obs = self.hydrograph.read_obs(start_yr=2010, end_yr=2021, spring_only = self.spring_eval, refresh=True).reset_index(drop=True)
         return obs
 
     def objectivefunction(self, simulation=None, evaluation=None):
@@ -159,7 +169,7 @@ class spot_setup_rvn(object):
             print("Ajusted Kling-Gupta Efficiency (KGE):", kge_adj)
             return kge_adj
         elif self.obj_fn == "nse":
-            nse = sp.objectivefunctions.nashsutcliffe(valid_sim, valid_eval)
+            nse = 1- np.sum((valid_sim - valid_eval) ** 2) / np.sum((valid_eval - np.mean(valid_eval)) ** 2)
             nse = np.squeeze(nse).item()
             print("Nash-Sutcliffe Efficiency (NSE):", nse)
             return nse
