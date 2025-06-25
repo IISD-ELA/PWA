@@ -76,27 +76,63 @@ class RavenFile:
             return f.read()
         
 
-    def rvp_update(self, dep_fact, seep_k, basin_fact_567, basin_fact_568, basin_fact_569, basin_fact_570,
-                   basin_fact_571, basin_fact_572, basin_fact_573, basin_fact_574, basin_fact_575,
-                   basin_fact_576, basin_fact_577, basin_fact_578):
+    def rvp_update(self, _param_set, _param_vector):
         """
         Update the RVP file with new parameters.
         """
         if not self.filename.endswith(".rvp"):
             raise ValueError("Filename must end with .rvp extension.")
         else:
-            # Read the template .rvp file content
-            rvp_txt = self.read_tpl()
+            
+            if _param_set == "base" or _param_set == "splitbasin":
+                # Read the template .rvp file content
+                rvp_txt = self.read_tpl()
+                seep_k = _param_vector[1]  # Seepage factor from the parameter vector
+                if seep_k > 0.1 or seep_k < 0.0:
+                    raise ValueError("Seepage factor must be between 0.0 and 0.1.")
 
-            # Replace the placeholder string with the actual parameter value
-            rvp_txt = rvp_txt.replace("seep_fact", str(seep_k))
+                # Replace the placeholder string with the actual parameter value
+                rvp_txt = rvp_txt.replace("seep_fact", str(seep_k))
 
-            # Write the text with the actual parameter value to the actual .rvp file
-            self.write(rvp_txt)
+                dep_fact = _param_vector[0]  # Generic depth factor from the parameter vector
+                if dep_fact > 1.2 or dep_fact < 0.8:
+                    raise ValueError("Depth factor must be between 0.8 and 1.2.")
 
-    def rvh_update(self, dep_fact, seep_k, basin_fact_567, basin_fact_568, basin_fact_569, basin_fact_570,
-                   basin_fact_571, basin_fact_572, basin_fact_573, basin_fact_574, basin_fact_575,
-                   basin_fact_576, basin_fact_577, basin_fact_578):
+                # Calculate new depth values for different subbasins by multiplying
+                # the generic depth factor by constants
+                s875_dep = dep_fact * 21.23
+                s876_dep = dep_fact * 27.39
+                s877_dep = dep_fact * 34.49
+                s878_dep = dep_fact * 5.94
+                s880_dep = dep_fact * 14.92
+                s881_dep = dep_fact * 29.12
+                s882_dep = dep_fact * 21.76
+                s883_dep = dep_fact * 66.96
+                s900_dep = dep_fact * 109.17
+                s901_dep = dep_fact * 999.75
+                s902_dep = dep_fact * 9.56
+                s903_dep = dep_fact * 22.67
+
+                # Replace the placeholder strings with the actual parameter values
+                rvp_txt = rvp_txt.replace("s875_dep", str(s875_dep))
+                rvp_txt = rvp_txt.replace("s876_dep", str(s876_dep))
+                rvp_txt = rvp_txt.replace("s877_dep", str(s877_dep))
+                rvp_txt = rvp_txt.replace("s878_dep", str(s878_dep))
+                rvp_txt = rvp_txt.replace("s880_dep", str(s880_dep))
+                rvp_txt = rvp_txt.replace("s881_dep", str(s881_dep))
+                rvp_txt = rvp_txt.replace("s882_dep", str(s882_dep))
+                rvp_txt = rvp_txt.replace("s883_dep", str(s883_dep))
+                rvp_txt = rvp_txt.replace("s900_dep", str(s900_dep))
+                rvp_txt = rvp_txt.replace("s901_dep", str(s901_dep))
+                rvp_txt = rvp_txt.replace("s902_dep", str(s902_dep))
+                rvp_txt = rvp_txt.replace("s903_dep", str(s903_dep))
+
+                # Write the text with the actual parameter value to the actual .rvp file
+                self.write(rvp_txt)
+            else:
+                raise ValueError("Unrecognized parameter set for .rvp update.")
+
+    def rvh_update(self, _param_set, _param_vector):
         """
         Update the RVH file with new parameters.
         """
@@ -105,52 +141,50 @@ class RavenFile:
         else:
             # Read the template .rvh file content
             rvh_txt = self.read_tpl()
-            
-            # Calculate new depth values for different subbasins by multiplying
-            # the generic depth factor by constants
-            s875_dep = dep_fact * 21.23
-            s876_dep = dep_fact * 27.39
-            s877_dep = dep_fact * 34.49
-            s878_dep = dep_fact * 5.94
-            s880_dep = dep_fact * 14.92
-            s881_dep = dep_fact * 29.12
-            s882_dep = dep_fact * 21.76
-            s883_dep = dep_fact * 66.96
-            s900_dep = dep_fact * 109.17
-            s901_dep = dep_fact * 999.75
-            s902_dep = dep_fact * 9.56
-            s903_dep = dep_fact * 22.67
 
-            # Replace the placeholder strings with the actual parameter values
-            rvh_txt = rvh_txt.replace("S875_dep", str(s875_dep))
-            rvh_txt = rvh_txt.replace("S876_dep", str(s876_dep))
-            rvh_txt = rvh_txt.replace("S877_dep", str(s877_dep))
-            rvh_txt = rvh_txt.replace("S878_dep", str(s878_dep))
-            rvh_txt = rvh_txt.replace("S880_dep", str(s880_dep))
-            rvh_txt = rvh_txt.replace("S881_dep", str(s881_dep))
-            rvh_txt = rvh_txt.replace("S882_dep", str(s882_dep))
-            rvh_txt = rvh_txt.replace("S883_dep", str(s883_dep))
-            rvh_txt = rvh_txt.replace("S900_dep", str(s900_dep))
-            rvh_txt = rvh_txt.replace("S901_dep", str(s901_dep))
-            rvh_txt = rvh_txt.replace("S902_dep", str(s902_dep))
-            rvh_txt = rvh_txt.replace("S903_dep", str(s903_dep))
-
+        
             # Replace the seepage factor placeholder with the current seep_k value
+            seep_k = _param_vector[1]  # Seepage factor from the parameter vector
+            if seep_k > 0.1 or seep_k < 0.0:
+                raise ValueError("Seepage factor must be between 0.0 and 0.1.")
             rvh_txt = rvh_txt.replace("seep_fact", str(seep_k))
             
-            # Calculate basin area values similarly by multiplying the basin_fact by constants
-            H567_area = basin_fact_567 * 53.9908
-            H568_area = basin_fact_568 * 17.0623
-            H569_area = basin_fact_569 * 5.1519
-            H570_area = basin_fact_570 * 7.7757
-            H571_area = basin_fact_571 * 21.9306
-            H572_area = basin_fact_572 * 23.7860
-            H573_area = basin_fact_573 * 17.4219
-            H574_area = basin_fact_574 * 15.0882
-            H575_area = basin_fact_575 * 2.1640
-            H576_area = basin_fact_576 * 2.6296
-            H577_area = basin_fact_577 * 2.0595
-            H578_area = basin_fact_578 * 88.3478
+            if _param_set == "base":
+                # Extract parameters from the parameter vector
+                basin_fact = _param_vector[2]  # Basin area factor from the parameter vector
+
+                # Calculate basin area values similarly by multiplying the basin_fact by constants
+                H567_area = basin_fact * 53.9908
+                H568_area = basin_fact * 17.0623
+                H569_area = basin_fact * 5.1519
+                H570_area = basin_fact * 7.7757
+                H571_area = basin_fact * 21.9306
+                H572_area = basin_fact * 23.7860
+                H573_area = basin_fact * 17.4219
+                H574_area = basin_fact * 15.0882
+                H575_area = basin_fact * 2.1640
+                H576_area = basin_fact * 2.6296
+                H577_area = basin_fact * 2.0595
+                H578_area = basin_fact * 88.3478
+
+            elif _param_set == "splitbasin":    
+                
+                # Calculate basin area values similarly by multiplying the basin_fact by constants
+                H567_area = _param_vector[2] * 53.9908
+                H568_area = _param_vector[3] * 17.0623
+                H569_area = _param_vector[4] * 5.1519
+                H570_area = _param_vector[5] * 7.7757
+                H571_area = _param_vector[6] * 21.9306
+                H572_area = _param_vector[7] * 23.7860
+                H573_area = _param_vector[8] * 17.4219
+                H574_area = _param_vector[9] * 15.0882
+                H575_area = _param_vector[10] * 2.1640
+                H576_area = _param_vector[11] * 2.6296
+                H577_area = _param_vector[12] * 2.0595
+                H578_area = _param_vector[13] * 88.3478
+
+            else:
+                raise ValueError("Unrecognized parameter set for .rvh update.")
 
             # Replace area placeholders with these computed values
             rvh_txt = rvh_txt.replace("H567_area", str(H567_area))
@@ -168,6 +202,8 @@ class RavenFile:
 
             # Finally, write the updated text with replaced parameters to the .rvh file
             self.write(rvh_txt)
+        
+
 
 
 def read_rv_diag(rv_path: str, diag_names: list[str] = None) -> dict:
