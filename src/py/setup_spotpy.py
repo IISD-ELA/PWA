@@ -13,7 +13,7 @@ class spot_setup_rvn(object):
     This class integrates the Raven model output with SpotPy's parameter sampling and evaluation framework.
     """
     
-    def __init__(self, model_name, calib_dir):
+    def __init__(self, model_name, calib_dir, obj_fn = "kge_adj"):
         """
         Initialize the calibration setup.
 
@@ -41,6 +41,7 @@ class spot_setup_rvn(object):
                         sp.parameter.Uniform("basin_fact_577", low=0.80, high=1.20),
                         sp.parameter.Uniform("basin_fact_578", low=0.80, high=1.20)
                     ]
+        self.obj_fn = obj_fn
     
     def parameters(self):
         print("Generated parameters for SpotPy calibration:", sp.parameter.generate(self.param_distributions))
@@ -143,18 +144,27 @@ class spot_setup_rvn(object):
 
         # Calculate NSE
         # NSE is already adjusted in the built-in spotpy function
-        kge_adj = 1-np.sqrt((2*(np.corrcoef(valid_sim, valid_eval)[0,1]-1))**2 + \
-                         (1-(np.mean(valid_sim)/np.mean(valid_eval)))**2 + \
-                         ((1-(np.std(valid_sim)/np.std(valid_eval)))/2)**2 \
-        )
 
-        # Force this into a scalar value (since sim and eval are pd.series,
-        # the spotpy nse function might sometimes return arrays, which is BAD,
-        # so we must prevent this from happening!)
-        kge_adj = np.squeeze(kge_adj).item()
+        if self.obj_fn == "kg_adj" :
+            kge_adj = 1-np.sqrt((2*(np.corrcoef(valid_sim, valid_eval)[0,1]-1))**2 + \
+                            (1-(np.mean(valid_sim)/np.mean(valid_eval)))**2 + \
+                            ((1-(np.std(valid_sim)/np.std(valid_eval)))/2)**2 \
+            )
 
-        print("Ajusted Kling-Gupta Efficiency (KGE):", kge_adj)
-        return kge_adj
+            # Force this into a scalar value (since sim and eval are pd.series,
+            # the spotpy nse function might sometimes return arrays, which is BAD,
+            # so we must prevent this from happening!)
+            kge_adj = np.squeeze(kge_adj).item()
+
+            print("Ajusted Kling-Gupta Efficiency (KGE):", kge_adj)
+            return kge_adj
+        elif self.obj_fn == "nse":
+            nse = sp.objectivefunctions.nashsutcliffe(valid_sim, valid_eval)
+            nse = np.squeeze(nse).item()
+            print("Nash-Sutcliffe Efficiency (NSE):", nse)
+            return nse
+        else:
+            raise ValueError(f"Unsupported objective function: {obj_fn}. Use 'kg_adj' or 'nse'.")
 
 
         
