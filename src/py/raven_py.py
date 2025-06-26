@@ -132,7 +132,7 @@ class RavenFile:
             else:
                 raise ValueError("Unrecognized parameter set for .rvp update.")
 
-    def rvh_update(self, _param_set, _param_vector):
+    def rvh_update(self, _param_set, _routing, _param_vector):
         """
         Update the RVH file with new parameters.
         """
@@ -218,6 +218,92 @@ class RavenFile:
             rvh_txt = rvh_txt.replace("H576_area", str(H576_area))
             rvh_txt = rvh_txt.replace("H577_area", str(H577_area))
             rvh_txt = rvh_txt.replace("H578_area", str(H578_area))
+
+            if _routing:
+                t_conc_fact = _param_vector[-2]  # Transport concentration factor from the parameter vector
+  
+                tc_875 = 15.01*t_conc_fact
+                tc_876 = 9.15*t_conc_fact
+                tc_877 = 6.62*t_conc_fact
+                tc_878 = 7.64*t_conc_fact
+                tc_880 = 11.76*t_conc_fact
+                tc_881 = 16.67*t_conc_fact
+                tc_882 = 10.80*t_conc_fact
+                tc_883 = 10.62*t_conc_fact
+                tc_900 = 3.40*t_conc_fact
+                tc_901 = 4.02*t_conc_fact
+                tc_902 = 3.40*t_conc_fact 
+                tc_903 = 22.47*t_conc_fact
+
+                t_peak_fact = _param_vector[-1]  # Transport peak factor from the parameter vector
+                
+
+                tp_875 = 9.00*t_peak_fact
+                tp_876 = 5.49*t_peak_fact
+                tp_877 = 3.97*t_peak_fact
+                tp_878 = 4.59*t_peak_fact
+                tp_880 = 7.05*t_peak_fact
+                tp_881 = 10.00*t_peak_fact
+                tp_882 = 6.48*t_peak_fact
+                tp_883 = 6.37*t_peak_fact
+                tp_900 = 2.04*t_peak_fact
+                tp_901 = 2.41*t_peak_fact
+                tp_902 = 2.04*t_peak_fact
+                tp_903 = 13.48*t_peak_fact
+
+            else:
+                tc_875 = 15.01
+                tc_876 = 9.15
+                tc_877 = 6.62
+                tc_878 = 7.64
+                tc_880 = 11.76
+                tc_881 = 16.67
+                tc_882 = 10.80
+                tc_883 = 10.62
+                tc_900 = 3.40
+                tc_901 = 4.02
+                tc_902 = 3.40
+                tc_903 = 22.47
+
+                tp_875 = 9.00
+                tp_876 = 5.49
+                tp_877 = 3.97
+                tp_878 = 4.59
+                tp_880 = 7.05
+                tp_881 = 10.00
+                tp_882 = 6.48
+                tp_883 = 6.37
+                tp_900 = 2.04
+                tp_901 = 2.41
+                tp_902 = 2.04
+                tp_903 = 13.48
+
+            # Replace transport concentration and peak factor placeholders with these computed values
+            rvh_txt = rvh_txt.replace("tc_875", str(tc_875))
+            rvh_txt = rvh_txt.replace("tc_876", str(tc_876))
+            rvh_txt = rvh_txt.replace("tc_877", str(tc_877))
+            rvh_txt = rvh_txt.replace("tc_878", str(tc_878))
+            rvh_txt = rvh_txt.replace("tc_880", str(tc_880))
+            rvh_txt = rvh_txt.replace("tc_881", str(tc_881))
+            rvh_txt = rvh_txt.replace("tc_882", str(tc_882))
+            rvh_txt = rvh_txt.replace("tc_883", str(tc_883))
+            rvh_txt = rvh_txt.replace("tc_900", str(tc_900))
+            rvh_txt = rvh_txt.replace("tc_901", str(tc_901))
+            rvh_txt = rvh_txt.replace("tc_902", str(tc_902))
+            rvh_txt = rvh_txt.replace("tc_903", str(tc_903))
+
+            rvh_txt = rvh_txt.replace("tp_875", str(tp_875))
+            rvh_txt = rvh_txt.replace("tp_876", str(tp_876))
+            rvh_txt = rvh_txt.replace("tp_877", str(tp_877))
+            rvh_txt = rvh_txt.replace("tp_878", str(tp_878))
+            rvh_txt = rvh_txt.replace("tp_880", str(tp_880))
+            rvh_txt = rvh_txt.replace("tp_881", str(tp_881))
+            rvh_txt = rvh_txt.replace("tp_882", str(tp_882))
+            rvh_txt = rvh_txt.replace("tp_883", str(tp_883))
+            rvh_txt = rvh_txt.replace("tp_900", str(tp_900))
+            rvh_txt = rvh_txt.replace("tp_901", str(tp_901))
+            rvh_txt = rvh_txt.replace("tp_902", str(tp_902))
+            rvh_txt = rvh_txt.replace("tp_903", str(tp_903))
 
             # Finally, write the updated text with replaced parameters to the .rvh file
             self.write(rvh_txt)

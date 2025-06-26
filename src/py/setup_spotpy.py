@@ -13,7 +13,7 @@ class spot_setup_rvn(object):
     This class integrates the Raven model output with SpotPy's parameter sampling and evaluation framework.
     """
     
-    def __init__(self, model_name, calib_dir, obj_fn = "kge_adj", split_areas = "None", spring_eval = True, low_seep = False):
+    def __init__(self, model_name, calib_dir, obj_fn = "kge_adj", split_areas = "None", spring_eval = True, low_seep = False, routing = False):
         """
         Initialize the calibration setup.
 
@@ -66,8 +66,14 @@ class spot_setup_rvn(object):
                             sp.parameter.Uniform("basin_fact", low=0.80, high=1.20)
                         ]
             self.param_set = "no_split"
+
+        if routing:
+            self.param_distributions.append(sp.parameter.Uniform("t_conc_fact", low=0.9, high=1.10))
+            self.param_distributions.append(sp.parameter.Uniform("t_peak_fact", low=0.9, high=1.10))
+
         self.obj_fn = obj_fn
         self.spring_eval = spring_eval
+        self.routing = routing
     
     def parameters(self):
         print("Generated parameters for SpotPy calibration:", sp.parameter.generate(self.param_distributions))
@@ -111,7 +117,7 @@ class spot_setup_rvn(object):
                 # Create a RavenFile object representing the .rvh file for the model
                 rvh = rv.RavenFile(f"{self.model_name}.rvh", calib_dir=self.model_path,  extension = "rvh")
                 # Update the .rvh file with the parameter values from param_vector
-                rvh.rvh_update(self.param_set, param_vector)    
+                rvh.rvh_update(self.param_set, self.routing, param_vector)    
             else:
                 # Raise an error if the file extension is not supported
                 raise ValueError(f"Unsupported file extension: {ext}")
@@ -129,7 +135,7 @@ class spot_setup_rvn(object):
     
 
 
-    def evaluation(self, diag_names=None):
+    def evaluation(self):
         """
         Get model diagnostics after running the Raven model.
         """
