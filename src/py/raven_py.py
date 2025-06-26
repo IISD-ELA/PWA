@@ -84,7 +84,7 @@ class RavenFile:
             raise ValueError("Filename must end with .rvp extension.")
         else:
             
-            if _param_set == "base" or _param_set == "splitbasin":
+            if _param_set in  ["no_split", "clrh_split", "phydap_split"]:
                 # Read the template .rvp file content
                 rvp_txt = self.read_tpl()
                 seep_k = _param_vector[1]  # Seepage factor from the parameter vector
@@ -149,7 +149,7 @@ class RavenFile:
                 raise ValueError("Seepage factor must be between 0.0 and 0.1.")
             rvh_txt = rvh_txt.replace("seep_fact", str(seep_k))
             
-            if _param_set == "base":
+            if _param_set == "no_split":
                 # Extract parameters from the parameter vector
                 basin_fact = _param_vector[2]  # Basin area factor from the parameter vector
 
@@ -167,7 +167,26 @@ class RavenFile:
                 H577_area = basin_fact * 2.0595
                 H578_area = basin_fact * 88.3478
 
-            elif _param_set == "splitbasin":    
+            elif _param_set == "phydap_split":
+                                # Extract parameters from the parameter vector
+                basin1_fact = _param_vector[2]  # Basin area factor from the parameter vector
+                basin2_fact = _param_vector[3]  # Basin area factor from the parameter vector
+
+                # Calculate basin area values similarly by multiplying the basin_fact by constants
+                H567_area = basin1_fact * 53.9908
+                H568_area = basin2_fact * 17.0623
+                H569_area = basin1_fact * 5.1519
+                H570_area = basin2_fact * 7.7757
+                H571_area = basin2_fact * 21.9306
+                H572_area = basin2_fact * 23.7860
+                H573_area = basin2_fact * 17.4219
+                H574_area = basin2_fact * 15.0882
+                H575_area = basin2_fact * 2.1640
+                H576_area = basin2_fact * 2.6296
+                H577_area = basin2_fact * 2.0595
+                H578_area = basin2_fact * 88.3478
+
+            elif _param_set == "clrh_split":    
                 
                 # Calculate basin area values similarly by multiplying the basin_fact by constants
                 H567_area = _param_vector[2] * 53.9908

@@ -13,7 +13,7 @@ class spot_setup_rvn(object):
     This class integrates the Raven model output with SpotPy's parameter sampling and evaluation framework.
     """
     
-    def __init__(self, model_name, calib_dir, obj_fn = "kge_adj", split_areas = False, spring_eval = True):
+    def __init__(self, model_name, calib_dir, obj_fn = "kge_adj", split_areas = "None", spring_eval = True, low_seep = False):
         """
         Initialize the calibration setup.
 
@@ -25,10 +25,16 @@ class spot_setup_rvn(object):
         self.model_path = calib_dir
         self.model_name = model_name
         self.hydrograph = rv.RavenHydrograph(self.model_path)
-        if split_areas:
+
+        if low_seep: 
+            seep_max = 0.02
+        else:
+            seep_max = 0.10
+
+        if split_areas == "CLRH":
             self.param_distributions = [
                             sp.parameter.Uniform("dep_fact", low=0.80, high=1.20),
-                            sp.parameter.Uniform("seep_k", low=0.00, high=0.10),
+                            sp.parameter.Uniform("seep_k", low=0.00, high=seep_max),
                             sp.parameter.Uniform("basin_fact_567", low=0.80, high=1.20),
                             sp.parameter.Uniform("basin_fact_568", low=0.80, high=1.20),
                             sp.parameter.Uniform("basin_fact_569", low=0.80, high=1.20),
@@ -42,14 +48,24 @@ class spot_setup_rvn(object):
                             sp.parameter.Uniform("basin_fact_577", low=0.80, high=1.20),
                             sp.parameter.Uniform("basin_fact_578", low=0.80, high=1.20)
                         ]
-            self.param_set = "splitbasin"
+            self.param_set = "clrh_split"
+
+        elif split_areas == "phydap":
+            self.param_distributions = [
+                            sp.parameter.Uniform("dep_fact", low=0.80, high=1.20),
+                            sp.parameter.Uniform("seep_k", low=0.00, high=seep_max),
+                            sp.parameter.Uniform("basin1_fact", low=0.80, high=1.20),
+                            sp.parameter.Uniform("basin2_fact", low=0.80, high=1.20)
+            ]
+            self.param_set = "phydap_split"
+        
         else:
             self.param_distributions = [
                             sp.parameter.Uniform("dep_fact", low=0.80, high=1.20),
-                            sp.parameter.Uniform("seep_k", low=0.00, high=0.10),
+                            sp.parameter.Uniform("seep_k", low=0.00, high=seep_max),
                             sp.parameter.Uniform("basin_fact", low=0.80, high=1.20)
                         ]
-            self.param_set = "base"
+            self.param_set = "no_split"
         self.obj_fn = obj_fn
         self.spring_eval = spring_eval
     
@@ -107,7 +123,7 @@ class spot_setup_rvn(object):
         subbasin_id = "sub875"
 
         # Return the simulated discharge time series for the specified subbasin
-        sim = self.hydrograph.read_sim(subbasin_id, start_yr=2010, end_yr=2021, spring_only = self.spring_eval, refresh=True).reset_index(drop=True)
+        sim = self.hydrograph.read_sim(subbasin_id, start_yr=2003, end_yr=2021, spring_only = self.spring_eval, refresh=True).reset_index(drop=True)
         # sim_2003 = sim.loc[sim["date"].year >= 2003]
         return sim
     
@@ -118,7 +134,7 @@ class spot_setup_rvn(object):
         Get model diagnostics after running the Raven model.
         """
         # read output
-        obs = self.hydrograph.read_obs(start_yr=2010, end_yr=2021, spring_only = self.spring_eval, refresh=True).reset_index(drop=True)
+        obs = self.hydrograph.read_obs(start_yr=2003, end_yr=2021, spring_only = self.spring_eval, refresh=True).reset_index(drop=True)
         return obs
 
     def objectivefunction(self, simulation=None, evaluation=None):
