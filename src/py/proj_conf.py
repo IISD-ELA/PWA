@@ -1,5 +1,6 @@
 # Take user input for model name and set up paths
-model_str_in = input("Enter the model name (e.g., 'manning'): ")
+# model_str_in = input("Enter the model name (e.g., 'manning'): ")
+model_str_in = "cypress"
 if model_str_in[-1] == '/': 
     model_str = model_str_in
 else :

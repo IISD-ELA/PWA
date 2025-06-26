@@ -3,9 +3,40 @@ import numpy as np
 import os
 import sys
 import pandas as pd
+import shutil
+import hashlib
+import time
 
 sys.path.append(os.path.dirname(os.path.realpath(__file__)))
 import raven_py as rv
+
+def calculate_checksum(file_path):
+    """Calculates the MD5 checksum of a file."""
+    hash_md5 = hashlib.md5()
+    with open(file_path, "rb") as f:
+        for chunk in iter(lambda: f.read(4096), b""):
+            hash_md5.update(chunk)
+    return hash_md5.hexdigest()
+
+def robust_copy(source_path, destination_path, retries=3, delay=0.1):
+    """Copies a file with checksum verification and retries."""
+    for attempt in range(retries):
+        try:
+            shutil.copy2(source_path, destination_path) # copy2 preserves metadata
+            source_checksum = calculate_checksum(source_path)
+            destination_checksum = calculate_checksum(destination_path)
+
+            if source_checksum == destination_checksum:
+                return True
+            else:
+                print(f"Checksum mismatch for {source_path} to {destination_path}. Retrying...")
+                os.remove(destination_path) # Remove corrupted file before retrying
+        except Exception as e:
+            print(f"Error during copy attempt {attempt + 1}: {e}")
+        time.sleep(delay * (attempt + 1)) # Exponential backoff
+
+    print(f"Failed to copy {source_path} to {destination_path} after {retries} attempts.")
+    return False
 
 class spot_setup_rvn(object):
     """
@@ -13,7 +44,7 @@ class spot_setup_rvn(object):
     This class integrates the Raven model output with SpotPy's parameter sampling and evaluation framework.
     """
     
-    def __init__(self, model_name, calib_dir, obj_fn = "kge_adj", split_areas = "None", spring_eval = True, low_seep = False):
+    def __init__(self, model_name, calib_dir, obj_fn = "kge_adj", split_areas = "None", spring_eval = True, low_seep = False, routing = False):
         """
         Initialize the calibration setup.
 
@@ -22,7 +53,37 @@ class spot_setup_rvn(object):
         model_name (str): The base filename (without extension) of the Raven model files.
         calib_dir (str): The directory path where the Raven model calibration files and outputs are located.
         """
-        self.model_path = calib_dir
+
+        if calib_dir[-1] == '/':
+            calib_dir = calib_dir[:-1]
+
+        # Create a unique directory for each calibration core
+        self.core = 0
+        self.model_path = calib_dir + "_mpi/core" + str(self.core) + "/"
+        while os.path.exists(self.model_path):
+            self.core += 1
+            self.model_path = calib_dir + "_mpi/core" + str(self.core) + "/"
+        
+        os.makedirs(self.model_path, exist_ok=True)
+
+        time.sleep(self.core * 120)  # stagger the start of each core by 2 minutes (this gives time for each core to do a robust copying of the 10GB .nc)
+
+        # copy contents of the original calibration directory to the new core directory
+        for item in os.listdir(calib_dir):
+            s = os.path.join(calib_dir, item)
+            d = os.path.join(self.model_path, item)
+            if os.path.isdir(s):
+                os.makedirs(d, exist_ok=True)
+                for sub_item in os.listdir(s):
+                    sub_s = os.path.join(s, sub_item)
+                    sub_d = os.path.join(d, sub_item)
+                    if os.path.isdir(sub_s):
+                        shutil.copytree(sub_s, sub_d, False, None)
+                    else:
+                        robust_copy(sub_s, sub_d)
+            else:
+                robust_copy(s, d)
+                
         self.model_name = model_name
         self.hydrograph = rv.RavenHydrograph(self.model_path)
 
@@ -66,8 +127,14 @@ class spot_setup_rvn(object):
                             sp.parameter.Uniform("basin_fact", low=0.80, high=1.20)
                         ]
             self.param_set = "no_split"
+
+        if routing:
+            self.param_distributions.append(sp.parameter.Uniform("t_conc_fact", low=0.9, high=1.10))
+            self.param_distributions.append(sp.parameter.Uniform("t_peak_fact", low=0.9, high=1.10))
+
         self.obj_fn = obj_fn
         self.spring_eval = spring_eval
+        self.routing = routing
     
     def parameters(self):
         print("Generated parameters for SpotPy calibration:", sp.parameter.generate(self.param_distributions))
@@ -111,7 +178,7 @@ class spot_setup_rvn(object):
                 # Create a RavenFile object representing the .rvh file for the model
                 rvh = rv.RavenFile(f"{self.model_name}.rvh", calib_dir=self.model_path,  extension = "rvh")
                 # Update the .rvh file with the parameter values from param_vector
-                rvh.rvh_update(self.param_set, param_vector)    
+                rvh.rvh_update(self.param_set, self.routing, param_vector)    
             else:
                 # Raise an error if the file extension is not supported
                 raise ValueError(f"Unsupported file extension: {ext}")
@@ -129,7 +196,7 @@ class spot_setup_rvn(object):
     
 
 
-    def evaluation(self, diag_names=None):
+    def evaluation(self):
         """
         Get model diagnostics after running the Raven model.
         """
