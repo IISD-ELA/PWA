@@ -44,7 +44,7 @@ class spot_setup_rvn(object):
     This class integrates the Raven model output with SpotPy's parameter sampling and evaluation framework.
     """
     
-    def __init__(self, model_name, calib_dir, obj_fn = "kge_adj", split_areas = "None", spring_eval = True, low_seep = False, routing = False):
+    def __init__(self, model_name, calib_dir, obj_fn = "kge_adj", split_areas = "None", spring_eval = True, low_seep = False, routing = False, mpi_cores = 0):
         """
         Initialize the calibration setup.
 
@@ -57,35 +57,44 @@ class spot_setup_rvn(object):
         if calib_dir[-1] == '/':
             calib_dir = calib_dir[:-1]
 
-        # Create a unique directory for each calibration core
-        self.core = 0
-        self.model_path = calib_dir + "_mpi/core" + str(self.core) + "/"
-        while os.path.exists(self.model_path):
-            self.core += 1
-            self.model_path = calib_dir + "_mpi/core" + str(self.core) + "/"
-        
-        os.makedirs(self.model_path, exist_ok=True)
+        self.model_name = model_name
 
-        time.sleep(self.core * 120)  # stagger the start of each core by 2 minutes (this gives time for each core to do a robust copying of the 10GB .nc)
+        # Create a unique directory for each calibration core
+        if mpi_cores < 2:
+            self.cores = 0
+            self.rank = 0
+            self.core_paths = [calib_dir + "/"]
+
+        else:
+            self.rank = 0 # rank of the MPI process, used to track simulation runs
+            self.core_paths = []
+            for c in range(mpi_cores):
+                c_path = calib_dir + "_mpi/core" + str(c) + "/"
+                if os.path.exists(c_path):
+                    continue
+                os.makedirs(c_path, exist_ok=True)
+                self.core_paths.append(c_path)
+                # time.sleep(c * 60)  # stagger the start of each core by 1 minute (this gives time for each core to do a robust copying of the 10GB .nc)
 
         # copy contents of the original calibration directory to the new core directory
-        for item in os.listdir(calib_dir):
-            s = os.path.join(calib_dir, item)
-            d = os.path.join(self.model_path, item)
-            if os.path.isdir(s):
-                os.makedirs(d, exist_ok=True)
-                for sub_item in os.listdir(s):
-                    sub_s = os.path.join(s, sub_item)
-                    sub_d = os.path.join(d, sub_item)
-                    if os.path.isdir(sub_s):
-                        shutil.copytree(sub_s, sub_d, False, None)
+                for item in os.listdir(calib_dir):
+                    s = os.path.join(calib_dir, item)
+                    d = os.path.join(c_path, item)
+                    if os.path.isdir(s):
+                        os.makedirs(d, exist_ok=True)
+                        for sub_item in os.listdir(s):
+                            sub_s = os.path.join(s, sub_item)
+                            sub_d = os.path.join(d, sub_item)
+                            if os.path.isdir(sub_s):
+                                shutil.copytree(sub_s, sub_d, False, None)
+                            else:
+                                robust_copy(sub_s, sub_d)
                     else:
-                        robust_copy(sub_s, sub_d)
-            else:
-                robust_copy(s, d)
-                
-        self.model_name = model_name
-        self.hydrograph = rv.RavenHydrograph(self.model_path)
+                        robust_copy(s, d)
+
+        print("Directory set-up complete. Core paths for SpotPy calibration:", self.core_paths, flush=True)
+        
+        self.hydrograph = rv.RavenHydrograph(calib_dir)
 
         if low_seep: 
             seep_max = 0.02
@@ -167,16 +176,28 @@ class spot_setup_rvn(object):
         pd.Series: Simulated discharge time series for a specific subbasin (default subbasin_id "sub875").
         """
         # WILL NEED TO CONSTRUCT RAVEN FILES HERE
-        # Loop over the list of Raven file extensions that need to be updated with parameters
+        # Loop over the list of Raven file extensions that need to be updated with parameter
+        
+        if self.cores > 1:
+            self.rank += 1
+            sim_dir = self.core_paths[self.rank % 4] # Use modulo to cycle through core paths
+            print(f"Running simulation number {self.rank} in directory: {sim_dir}", flush=True)
+            while not os.path.exists(sim_dir):
+                time.sleep(10)
+                print(f"Waiting for directory creation: {sim_dir}", flush=True)
+
+        else:
+            sim_dir = self.core_paths[0]
+
         for ext in exts:
             if ext == "rvp":
                 # Create a RavenFile object representing the .rvp file for the model
-                rvp = rv.RavenFile(f"{self.model_name}.rvp", calib_dir=self.model_path, extension = "rvp")
+                rvp = rv.RavenFile(f"{self.model_name}.rvp", calib_dir=sim_dir, extension = "rvp")
                 # Update the .rvp file with the parameter values from param_vector
                 rvp.rvp_update(self.param_set, param_vector)
             elif ext == "rvh":
                 # Create a RavenFile object representing the .rvh file for the model
-                rvh = rv.RavenFile(f"{self.model_name}.rvh", calib_dir=self.model_path,  extension = "rvh")
+                rvh = rv.RavenFile(f"{self.model_name}.rvh", calib_dir=sim_dir,  extension = "rvh")
                 # Update the .rvh file with the parameter values from param_vector
                 rvh.rvh_update(self.param_set, self.routing, param_vector)    
             else:
@@ -184,14 +205,17 @@ class spot_setup_rvn(object):
                 raise ValueError(f"Unsupported file extension: {ext}")
         
         # Run the Raven model with the updated files
-        rv.run_raven(self.model_name, self.model_path)
+        rv.run_raven(self.model_name, sim_dir)
 
         # subbasin_id = input("Enter the subbasin ID for output reading: ")
         subbasin_id = "sub875"
 
+        sim_hydrograph = rv.RavenHydrograph((sim_dir))
+
         # Return the simulated discharge time series for the specified subbasin
-        sim = self.hydrograph.read_sim(subbasin_id, start_yr=2003, end_yr=2021, spring_only = self.spring_eval, refresh=True).reset_index(drop=True)
+        sim = sim_hydrograph.read_sim(subbasin_id, start_yr=2003, end_yr=2021, spring_only = self.spring_eval, refresh=True).reset_index(drop=True)
         # sim_2003 = sim.loc[sim["date"].year >= 2003]
+
         return sim
     
 

@@ -24,7 +24,8 @@ raven_name = "CypressRiverT_ERA5"
 
 
 # Set up the calibration 
-calibrator = spot_setup_rvn(raven_name, DATA_CAL, obj_fn= "nse", split_areas = "phydap", spring_eval= True, low_seep=True, routing = True)
+calibrator = spot_setup_rvn(raven_name, DATA_CAL, obj_fn= "nse", split_areas = "phydap", \
+                            spring_eval= True, low_seep=True, routing = True, mpi_cores=2)
 
  
 sampler=sp.algorithms.mc(calibrator, # must use this or ROPE flattens the parameter space and collapses!!
