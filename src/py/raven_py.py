@@ -220,7 +220,7 @@ class RavenFile:
             rvh_txt = rvh_txt.replace("H578_area", str(H578_area))
 
             if _routing:
-                t_conc_fact = _param_vector[-2]  # Transport concentration factor from the parameter vector
+                t_conc_fact = _param_vector[-3]  # Transport concentration factor from the parameter vector
   
                 tc_875 = 15.01*t_conc_fact
                 tc_876 = 9.15*t_conc_fact
@@ -235,7 +235,7 @@ class RavenFile:
                 tc_902 = 3.40*t_conc_fact 
                 tc_903 = 22.47*t_conc_fact
 
-                t_peak_fact = _param_vector[-1]  # Transport peak factor from the parameter vector
+                t_peak_fact = _param_vector[-2]  # Transport peak factor from the parameter vector
                 
 
                 tp_875 = 9.00*t_peak_fact
@@ -251,6 +251,21 @@ class RavenFile:
                 tp_902 = 2.04*t_peak_fact
                 tp_903 = 13.48*t_peak_fact
 
+                qref_scale = _param_vector[-1]  # Qref scale factor from the parameter vector
+                
+                qref_875 = qref_scale * 1.08
+                qref_876 = qref_scale * 0.074
+                qref_877 = qref_scale * 0.361
+                qref_878 = qref_scale * 0.507
+                qref_880 = qref_scale * 0.095
+                qref_881 = qref_scale * 0.102
+                qref_882 = qref_scale * 0.268
+                qref_883 = qref_scale * 0.065
+                qref_900 = qref_scale * 0.412
+                qref_901 = qref_scale * 0.412
+                qref_902 = qref_scale * 0.412
+                qref_903 = qref_scale * 0.412
+                
             else:
                 tc_875 = 15.01
                 tc_876 = 9.15
@@ -278,6 +293,19 @@ class RavenFile:
                 tp_902 = 2.04
                 tp_903 = 13.48
 
+                qref_875 = 1.08
+                qref_876 = 0.074
+                qref_877 = 0.361
+                qref_878 = 0.507
+                qref_880 = 0.095
+                qref_881 = 0.102
+                qref_882 = 0.268
+                qref_883 = 0.065
+                qref_900 = 0.412
+                qref_901 = 0.412
+                qref_902 = 0.412
+                qref_903 = 0.412
+
             # Replace transport concentration and peak factor placeholders with these computed values
             rvh_txt = rvh_txt.replace("tc_875", str(tc_875))
             rvh_txt = rvh_txt.replace("tc_876", str(tc_876))
@@ -304,6 +332,20 @@ class RavenFile:
             rvh_txt = rvh_txt.replace("tp_901", str(tp_901))
             rvh_txt = rvh_txt.replace("tp_902", str(tp_902))
             rvh_txt = rvh_txt.replace("tp_903", str(tp_903))
+
+            rvh_txt = rvh_txt.replace("qref_875", str(qref_875))
+            rvh_txt = rvh_txt.replace("qref_876", str(qref_876))
+            rvh_txt = rvh_txt.replace("qref_877", str(qref_877))
+            rvh_txt = rvh_txt.replace("qref_878", str(qref_878))
+            rvh_txt = rvh_txt.replace("qref_880", str(qref_880))
+            rvh_txt = rvh_txt.replace("qref_881", str(qref_881))
+            rvh_txt = rvh_txt.replace("qref_882", str(qref_882))
+            rvh_txt = rvh_txt.replace("qref_883", str(qref_883))
+            rvh_txt = rvh_txt.replace("qref_900", str(qref_900))
+            rvh_txt = rvh_txt.replace("qref_901", str(qref_901))
+            rvh_txt = rvh_txt.replace("qref_902", str(qref_902))
+            rvh_txt = rvh_txt.replace("qref_903", str(qref_903))
+            
 
             # Finally, write the updated text with replaced parameters to the .rvh file
             self.write(rvh_txt)

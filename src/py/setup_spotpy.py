@@ -131,7 +131,7 @@ class spot_setup_rvn(object):
         
         else:
             self.param_distributions = [
-                            sp.parameter.Uniform("dep_fact", low=0.80, high=1.20),
+                            sp.parameter.Uniform("dep_fact", low=0.50, high=1.0),
                             sp.parameter.Uniform("seep_k", low=0.00, high=seep_max),
                             sp.parameter.Uniform("basin_fact", low=0.80, high=1.20)
                         ]
@@ -140,6 +140,8 @@ class spot_setup_rvn(object):
         if routing:
             self.param_distributions.append(sp.parameter.Uniform("t_conc_fact", low=0.9, high=1.10))
             self.param_distributions.append(sp.parameter.Uniform("t_peak_fact", low=0.9, high=1.10))
+            self.param_distributions.append(sp.parameter.Uniform("qref_scale", low=0.8, high=1.20))
+
 
         self.obj_fn = obj_fn
         self.spring_eval = spring_eval
