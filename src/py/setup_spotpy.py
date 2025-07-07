@@ -140,7 +140,7 @@ class spot_setup_rvn(object):
         
         else:
             self.param_distributions = [
-                            sp.parameter.Uniform("dep_fact", low=0.80, high=1.20),
+                            sp.parameter.Uniform("dep_fact", low=0.50, high=1.0),
                             sp.parameter.Uniform("seep_k", low=0.00, high=seep_max),
                             sp.parameter.Uniform("basin_fact", low=0.80, high=1.20)
                         ]
