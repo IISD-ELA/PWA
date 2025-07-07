@@ -6,6 +6,7 @@ import pandas as pd
 import shutil
 import hashlib
 import time
+from mpi4py import MPI
 
 sys.path.append(os.path.dirname(os.path.realpath(__file__)))
 import raven_py as rv
@@ -44,7 +45,9 @@ class spot_setup_rvn(object):
     This class integrates the Raven model output with SpotPy's parameter sampling and evaluation framework.
     """
     
-    def __init__(self, model_name, calib_dir, obj_fn = "kge_adj", split_areas = "None", spring_eval = True, low_seep = False, routing = False, mpi_cores = 0):
+    def __init__(self, model_name, calib_dir, obj_fn = "kge_adj", 
+                 split_areas = "None", spring_eval = True, 
+                 low_seep = False, routing = False, mpi_cores = 0):
         """
         Initialize the calibration setup.
 
@@ -62,35 +65,41 @@ class spot_setup_rvn(object):
         # Create a unique directory for each calibration core
         if mpi_cores < 2:
             self.cores = 0
-            self.rank = 0
+            self.rank = MPI.COMM_WORLD.Get_rank()
             self.core_paths = [calib_dir + "/"]
 
         else:
-            self.rank = 0 # rank of the MPI process, used to track simulation runs
-            self.core_paths = []
-            for c in range(mpi_cores):
-                c_path = calib_dir + "_mpi/core" + str(c) + "/"
-                if os.path.exists(c_path):
-                    continue
-                os.makedirs(c_path, exist_ok=True)
-                self.core_paths.append(c_path)
-                # time.sleep(c * 60)  # stagger the start of each core by 1 minute (this gives time for each core to do a robust copying of the 10GB .nc)
+            self.rank = MPI.COMM_WORLD.Get_rank()
+            self.cores = mpi_cores
 
-        # copy contents of the original calibration directory to the new core directory
-                for item in os.listdir(calib_dir):
-                    s = os.path.join(calib_dir, item)
-                    d = os.path.join(c_path, item)
-                    if os.path.isdir(s):
-                        os.makedirs(d, exist_ok=True)
-                        for sub_item in os.listdir(s):
-                            sub_s = os.path.join(s, sub_item)
-                            sub_d = os.path.join(d, sub_item)
-                            if os.path.isdir(sub_s):
-                                shutil.copytree(sub_s, sub_d, False, None)
-                            else:
-                                robust_copy(sub_s, sub_d)
-                    else:
-                        robust_copy(s, d)
+            # Create list of core paths (same for all processes)
+            self.core_paths = [
+                f"{calib_dir}_mpi/core{c}/" for c in range(mpi_cores)
+                                ]
+
+            # Set this process's working directory
+            self.working_dir = self.core_paths[self.rank]
+
+            # Only this process creates and copies into its working directory
+            os.makedirs(self.working_dir, exist_ok=True)
+            print(f"[rank {self.rank}] Created: {self.working_dir}", flush=True)
+
+            # Copy only if this process owns the directory
+            for item in os.listdir(calib_dir):
+                s = os.path.join(calib_dir, item)
+                d = os.path.join(self.working_dir, item)
+
+                if os.path.isdir(s):
+                    os.makedirs(d, exist_ok=True)
+                    for sub_item in os.listdir(s):
+                        sub_s = os.path.join(s, sub_item)
+                        sub_d = os.path.join(d, sub_item)
+                        if os.path.isdir(sub_s):
+                            shutil.copytree(sub_s, sub_d, dirs_exist_ok=True)
+                        else:
+                            robust_copy(sub_s, sub_d)
+                else:
+                    robust_copy(s, d)
 
         print("Directory set-up complete. Core paths for SpotPy calibration:", self.core_paths, flush=True)
         
@@ -140,10 +149,11 @@ class spot_setup_rvn(object):
         if routing:
             self.param_distributions.append(sp.parameter.Uniform("t_conc_fact", low=0.9, high=1.10))
             self.param_distributions.append(sp.parameter.Uniform("t_peak_fact", low=0.9, high=1.10))
-
+            self.param_distributions.append(sp.parameter.Uniform("qref_scale", low=0.8, high=1.20))
         self.obj_fn = obj_fn
         self.spring_eval = spring_eval
         self.routing = routing
+        self.working_dir = self.core_paths[self.rank]
     
     def parameters(self):
         print("Generated parameters for SpotPy calibration:", sp.parameter.generate(self.param_distributions))
@@ -180,14 +190,14 @@ class spot_setup_rvn(object):
         
         if self.cores > 1:
             self.rank += 1
-            sim_dir = self.core_paths[self.rank % 4] # Use modulo to cycle through core paths
+            sim_dir = self.working_dir
             print(f"Running simulation number {self.rank} in directory: {sim_dir}", flush=True)
             while not os.path.exists(sim_dir):
                 time.sleep(10)
                 print(f"Waiting for directory creation: {sim_dir}", flush=True)
 
         else:
-            sim_dir = self.core_paths[0]
+            sim_dir = self.working_dir
 
         for ext in exts:
             if ext == "rvp":
