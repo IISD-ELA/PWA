@@ -110,10 +110,13 @@ class spot_setup_rvn(object):
         else:
             seep_max = 0.10
 
+        self.param_distributions = [
+                            sp.parameter.Uniform("dep_fact", low=0.70, high=1.00),
+                            sp.parameter.Uniform("seep_k", low=0.00, high=seep_max)
+        ]
+
         if split_areas == "CLRH":
-            self.param_distributions = [
-                            sp.parameter.Uniform("dep_fact", low=0.80, high=1.20),
-                            sp.parameter.Uniform("seep_k", low=0.00, high=seep_max),
+            self.param_distributions.append([
                             sp.parameter.Uniform("basin_fact_567", low=0.80, high=1.20),
                             sp.parameter.Uniform("basin_fact_568", low=0.80, high=1.20),
                             sp.parameter.Uniform("basin_fact_569", low=0.80, high=1.20),
@@ -126,29 +129,24 @@ class spot_setup_rvn(object):
                             sp.parameter.Uniform("basin_fact_576", low=0.80, high=1.20),
                             sp.parameter.Uniform("basin_fact_577", low=0.80, high=1.20),
                             sp.parameter.Uniform("basin_fact_578", low=0.80, high=1.20)
-                        ]
+                        ])
             self.param_set = "clrh_split"
 
         elif split_areas == "phydap":
-            self.param_distributions = [
-                            sp.parameter.Uniform("dep_fact", low=0.80, high=1.20),
-                            sp.parameter.Uniform("seep_k", low=0.00, high=seep_max),
-                            sp.parameter.Uniform("basin1_fact", low=0.80, high=1.20),
-                            sp.parameter.Uniform("basin2_fact", low=0.80, high=1.20)
-            ]
+            self.param_distributions.append(sp.parameter.Uniform("basin1_fact", low=0.80, high=1.20))
+            self.param_distributions.append(sp.parameter.Uniform("basin2_fact", low=0.80, high=1.20))
+
             self.param_set = "phydap_split"
         
         else:
             self.param_distributions = [
-                            sp.parameter.Uniform("dep_fact", low=0.50, high=1.0),
-                            sp.parameter.Uniform("seep_k", low=0.00, high=seep_max),
                             sp.parameter.Uniform("basin_fact", low=0.80, high=1.20)
                         ]
             self.param_set = "no_split"
 
         if routing:
-            self.param_distributions.append(sp.parameter.Uniform("t_conc_fact", low=0.9, high=1.10))
-            self.param_distributions.append(sp.parameter.Uniform("t_peak_fact", low=0.9, high=1.10))
+            self.param_distributions.append(sp.parameter.Uniform("tc_tp_fact", low=1.1, high=2.5))
+            self.param_distributions.append(sp.parameter.Uniform("t_peak_fact", low=0.5, high=1.50))
             self.param_distributions.append(sp.parameter.Uniform("qref_scale", low=0.8, high=1.20))
         self.obj_fn = obj_fn
         self.spring_eval = spring_eval
@@ -272,7 +270,7 @@ class spot_setup_rvn(object):
         # Calculate NSE
         # NSE is already adjusted in the built-in spotpy function
 
-        if self.obj_fn == "kg_adj" :
+        if self.obj_fn == "kge_adj" :
             kge_adj = 1-np.sqrt((2*(np.corrcoef(valid_sim, valid_eval)[0,1]-1))**2 + \
                             (1-(np.mean(valid_sim)/np.mean(valid_eval)))**2 + \
                             ((1-(np.std(valid_sim)/np.std(valid_eval)))/2)**2 \
@@ -291,7 +289,7 @@ class spot_setup_rvn(object):
             print("Nash-Sutcliffe Efficiency (NSE):", nse)
             return nse
         else:
-            raise ValueError(f"Unsupported objective function: {obj_fn}. Use 'kg_adj' or 'nse'.")
+            raise ValueError(f"Unsupported objective function: {self.obj_fn}. Use 'kge_adj' or 'nse'.")
 
 
         

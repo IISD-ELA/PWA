@@ -220,7 +220,8 @@ class RavenFile:
             rvh_txt = rvh_txt.replace("H578_area", str(H578_area))
 
             if _routing:
-                t_conc_fact = _param_vector[-3]  # Transport concentration factor from the parameter vector
+                t_peak_fact = _param_vector[-2]  # Transport peak factor from the parameter vector
+                t_conc_fact = _param_vector[-3] * t_peak_fact  # Transport concentration factor from the parameter vector
   
                 tc_875 = 15.01*t_conc_fact
                 tc_876 = 9.15*t_conc_fact
@@ -235,7 +236,7 @@ class RavenFile:
                 tc_902 = 3.40*t_conc_fact 
                 tc_903 = 22.47*t_conc_fact
 
-                t_peak_fact = _param_vector[-2]  # Transport peak factor from the parameter vector
+                
                 
 
                 tp_875 = 9.00*t_peak_fact

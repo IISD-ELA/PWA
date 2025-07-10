@@ -11,7 +11,7 @@ import spotpy as sp
 from pathlib import Path
 
 # Ensure the project directory is in the Python path
-prj_path = os.path.abspath(os.path.join(os.getcwd(), '..')) + "\PWA"
+prj_path = os.path.abspath(os.path.join(os.getcwd(), '..')) + "/PWA"
 if prj_path not in sys.path:
     sys.path.insert(0, prj_path)
 
@@ -30,12 +30,12 @@ print(DATA_CAL_NEW)
 
 # Set up the calibration 
 calibrator = spot_setup_rvn(raven_name, DATA_CAL_NEW, obj_fn= "nse", split_areas = "phydap", \
-                            spring_eval= True, low_seep=True, routing = True, mpi_cores=8)
+                            spring_eval= True, low_seep=True, routing = True, mpi_cores=14)
 
  
-sampler=sp.algorithms.mc(calibrator, # must use this or ROPE flattens the parameter space and collapses!!
+sampler=sp.algorithms.rope(calibrator, # must use this or ROPE flattens the parameter space and collapses!!
                            parallel='mpi',
-                           dbname='mc_ph_spr_lsp_routing',
+                           dbname='rope_ph_spr_lsp_routing_5k',
                            dbformat='csv')
 
 
