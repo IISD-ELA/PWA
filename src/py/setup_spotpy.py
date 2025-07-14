@@ -115,7 +115,7 @@ class spot_setup_rvn(object):
                             sp.parameter.Uniform("seep_k", low=0.00, high=seep_max)
         ]
 
-        if split_areas == "CLRH":
+        if split_areas.lower() == "clrh":
             self.param_distributions.append([
                             sp.parameter.Uniform("basin_fact_567", low=0.80, high=1.20),
                             sp.parameter.Uniform("basin_fact_568", low=0.80, high=1.20),
@@ -132,19 +132,22 @@ class spot_setup_rvn(object):
                         ])
             self.param_set = "clrh_split"
 
-        elif split_areas == "phydap":
+        elif split_areas.lower() == "phydap":
             self.param_distributions.append(sp.parameter.Uniform("basin1_fact", low=0.80, high=1.20))
             self.param_distributions.append(sp.parameter.Uniform("basin2_fact", low=0.80, high=1.20))
 
             self.param_set = "phydap_split"
         
-        else:
+        elif split_areas.lower() == "none" or split_areas.lower() == "no_split":
             self.param_distributions.append(sp.parameter.Uniform("basin_fact", low=0.80, high=1.20))
             self.param_set = "no_split"
+        
+        else:
+            raise ValueError(f"Unsupported split_areas value: {split_areas}. Use 'clrh', 'phydap', or 'none'.")
 
         if routing:
             self.param_distributions.append(sp.parameter.Uniform("tc_tp_fact", low=1.1, high=2.5))
-            self.param_distributions.append(sp.parameter.Uniform("t_peak_fact", low=0.5, high=1.50))
+            self.param_distributions.append(sp.parameter.Uniform("t_peak_fact", low=0.4, high=1.20))
             self.param_distributions.append(sp.parameter.Uniform("qref_scale", low=0.8, high=1.20))
         self.obj_fn = obj_fn
         self.spring_eval = spring_eval

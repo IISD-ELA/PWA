@@ -497,10 +497,18 @@ class RavenHydrograph:
 
         if spring_only:
             self.eval = self.eval.loc[self.eval["date_time"].dt.month.lt(7)]
+        
+        noon_index = self.eval.index[self.eval["date_time"].dt.hour == 12]
+
+        noon_index_interval = int(noon_index[1]-noon_index[0])
 
         # Look for any column with 'observed' in its name
         for col in self.eval.columns:
             if "observed" in col.lower():
+                # removed values in this column that are not at noon
                 observed = self.eval[col]
+                observed = observed.where(observed.index.isin(noon_index))
+                observed = observed.interpolate(method='linear', limit_direction='both', limit = noon_index_interval, limit_area = "inside")
+                
                 break
         return observed
