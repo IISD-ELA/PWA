@@ -95,8 +95,8 @@ class RavenFile:
                 rvp_txt = rvp_txt.replace("seep_fact", str(seep_k))
 
                 dep_fact = _param_vector[0]  # Generic depth factor from the parameter vector
-                if dep_fact > 1.2 or dep_fact < 0.8:
-                    raise ValueError("Depth factor must be between 0.8 and 1.2.")
+                if dep_fact > 1.2 or dep_fact < 0.5:
+                    raise ValueError("Depth factor must be between 0.5 and 1.2.")
 
                 # Calculate new depth values for different subbasins by multiplying
                 # the generic depth factor by constants

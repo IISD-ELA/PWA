@@ -139,9 +139,7 @@ class spot_setup_rvn(object):
             self.param_set = "phydap_split"
         
         else:
-            self.param_distributions = [
-                            sp.parameter.Uniform("basin_fact", low=0.80, high=1.20)
-                        ]
+            self.param_distributions.append(sp.parameter.Uniform("basin_fact", low=0.80, high=1.20))
             self.param_set = "no_split"
 
         if routing:
@@ -232,8 +230,11 @@ class spot_setup_rvn(object):
         """
         Get model diagnostics after running the Raven model.
         """
+
+
         # read output
         obs = self.hydrograph.read_obs(start_yr=2003, end_yr=2021, spring_only = self.spring_eval, refresh=True).reset_index(drop=True)
+
         return obs
 
     def objectivefunction(self, simulation=None, evaluation=None):
