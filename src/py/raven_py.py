@@ -2,6 +2,7 @@ import os
 import subprocess
 import shlex
 import pandas as pd
+import re
 
 
 def run_raven(raven_model, data_cal="data/calibration"):
@@ -127,6 +128,17 @@ class RavenFile:
                 rvp_txt = rvp_txt.replace("s902_dep", str(s902_dep))
                 rvp_txt = rvp_txt.replace("s903_dep", str(s903_dep))
 
+                # -1 index since bedslope parameter appended last in spotpy setup class
+                bedslope_mult = _param_vector[-1]  
+
+                def scale_bedslope(match):
+                    original_value = float(match.group(1))
+                    new_value = original_value * bedslope_mult
+                    return f":Bedslope\t\t\t {new_value:.7f}"
+                
+                # This regex finds any ":Bedslope <number>" line and replaces it
+                rvp_txt = re.sub(r":Bedslope\s+([0-9.Ee+-]+)", scale_bedslope, rvp_txt)
+                
                 # Write the text with the actual parameter value to the actual .rvp file
                 self.write(rvp_txt)
             else:
@@ -220,8 +232,8 @@ class RavenFile:
             rvh_txt = rvh_txt.replace("H578_area", str(H578_area))
 
             if _routing:
-                t_peak_fact = _param_vector[-2]  # Transport peak factor from the parameter vector
-                t_conc_fact = _param_vector[-3] * t_peak_fact  # Transport concentration factor from the parameter vector
+                t_peak_fact = _param_vector[-3]  # Transport peak factor from the parameter vector
+                t_conc_fact = _param_vector[-4] * t_peak_fact  # Transport concentration factor from the parameter vector
   
                 tc_875 = 15.01*t_conc_fact
                 tc_876 = 9.15*t_conc_fact
@@ -234,9 +246,7 @@ class RavenFile:
                 tc_900 = 3.40*t_conc_fact
                 tc_901 = 4.02*t_conc_fact
                 tc_902 = 3.40*t_conc_fact 
-                tc_903 = 22.47*t_conc_fact
-
-                
+                tc_903 = 22.47*t_conc_fact         
                 
 
                 tp_875 = 9.00*t_peak_fact
@@ -252,7 +262,7 @@ class RavenFile:
                 tp_902 = 2.04*t_peak_fact
                 tp_903 = 13.48*t_peak_fact
 
-                qref_scale = _param_vector[-1]  # Qref scale factor from the parameter vector
+                qref_scale = _param_vector[-2]  # Qref scale factor from the parameter vector
                 
                 qref_875 = qref_scale * 1.08
                 qref_876 = qref_scale * 0.074

@@ -149,6 +149,10 @@ class spot_setup_rvn(object):
             self.param_distributions.append(sp.parameter.Uniform("tc_tp_fact", low=1.1, high=2.5))
             self.param_distributions.append(sp.parameter.Uniform("t_peak_fact", low=0.4, high=1.20))
             self.param_distributions.append(sp.parameter.Uniform("qref_scale", low=0.8, high=1.20))
+        
+        # Add bedslope scale factor/multiplier parameter (applies to all subbasins)
+        self.param_distributions.append(sp.parameter.Uniform("bedslope_mult", low=0.5, high=1.5))
+        
         self.obj_fn = obj_fn
         self.spring_eval = spring_eval
         self.routing = routing
@@ -158,31 +162,21 @@ class spot_setup_rvn(object):
         print("Generated parameters for SpotPy calibration:", sp.parameter.generate(self.param_distributions))
         return sp.parameter.generate(self.param_distributions)
     
-    # @property
-    # def parameter(self):
-    #     # Uniform distribution for parameters
-    #     param_dist = [
-    #                 sp.parameter.Uniform("dep_fact", low=0.80, high=1.20),
-    #                 sp.parameter.Uniform("seep_k", low=0.00, high=0.10),
-    #                 sp.parameter.Uniform("basin_fact", low=0.80, high=1.20)
-    #             ]
-        
-    #     # Sampled list of parameters from the uniform distribution
-    #     params_samples = [param.sample(np.random) for param in param_dist]
-    #     return params_samples
-
     def simulation(self,  param_vector, exts: list[str] = ["rvp", "rvh"]):
         """
         Run a simulation of the Raven model using a vector of parameters, updating specified Raven files.
 
         Parameters:
         ------------
-        param_vector (list or tuple): A vector of parameters [dep_fact, seep_k, basin_fact] to update in Raven files.
-        exts (list of str): List of Raven file extensions to update (default: ["rvp", "rvh"]).
+        param_vector (list or tuple): 
+            A vector of parameters [dep_fact, seep_k, basin_fact, bedslope_mult] to update in Raven files.
+        exts (list of str): 
+            List of Raven file extensions to update (default: ["rvp", "rvh"]).
 
         Returns:
         ------------
-        pd.Series: Simulated discharge time series for a specific subbasin (default subbasin_id "sub875").
+        pd.Series: 
+            Simulated discharge time series for a specific subbasin (default subbasin_id "sub875").
         """
         # WILL NEED TO CONSTRUCT RAVEN FILES HERE
         # Loop over the list of Raven file extensions that need to be updated with parameter
@@ -202,8 +196,15 @@ class spot_setup_rvn(object):
             if ext == "rvp":
                 # Create a RavenFile object representing the .rvp file for the model
                 rvp = rv.RavenFile(f"{self.model_name}.rvp", calib_dir=sim_dir, extension = "rvp")
+
+                # Create a RavenFile object representing the channel properties file
+                rvp_channel_props = rv.RavenFile("channel_properties_T_ERA5.rvp", calib_dir=sim_dir, extension = "rvp")
+
                 # Update the .rvp file with the parameter values from param_vector
                 rvp.rvp_update(self.param_set, param_vector)
+                
+                # Update the channel properties file with the parameter values from param_vector
+                rvp_channel_props.rvp_update(self.param_set, param_vector)
             elif ext == "rvh":
                 # Create a RavenFile object representing the .rvh file for the model
                 rvh = rv.RavenFile(f"{self.model_name}.rvh", calib_dir=sim_dir,  extension = "rvh")
