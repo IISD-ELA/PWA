@@ -77,7 +77,7 @@ class RavenFile:
             return f.read()
         
 
-    def rvp_update(self, _param_set, _param_vector):
+    def rvp_update(self, _param_set, _dep_scale, _param_vector):
         """
         Update the RVP file with new parameters.
         """
@@ -85,66 +85,76 @@ class RavenFile:
             raise ValueError("Filename must end with .rvp extension.")
         else:
             
-            if _param_set in  ["no_split", "clrh_split", "phydap_split"]:
-                # Read the template .rvp file content
-                rvp_txt = self.read_tpl()
-                seep_k = _param_vector[1]  # Seepage factor from the parameter vector
-                if seep_k > 0.1 or seep_k < 0.0:
-                    raise ValueError("Seepage factor must be between 0.0 and 0.1.")
+            # Read the template .rvp file content
+            rvp_txt = self.read_tpl()
 
-                # Replace the placeholder string with the actual parameter value
-                rvp_txt = rvp_txt.replace("seep_fact", str(seep_k))
-
-                dep_fact = _param_vector[0]  # Generic depth factor from the parameter vector
-                if dep_fact > 1.2 or dep_fact < 0.5:
-                    raise ValueError("Depth factor must be between 0.5 and 1.2.")
-
-                # Calculate new depth values for different subbasins by multiplying
-                # the generic depth factor by constants
-                s875_dep = dep_fact * 21.23
-                s876_dep = dep_fact * 27.39
-                s877_dep = dep_fact * 34.49
-                s878_dep = dep_fact * 5.94
-                s880_dep = dep_fact * 14.92
-                s881_dep = dep_fact * 29.12
-                s882_dep = dep_fact * 21.76
-                s883_dep = dep_fact * 66.96
-                s900_dep = dep_fact * 109.17
-                s901_dep = dep_fact * 999.75
-                s902_dep = dep_fact * 9.56
-                s903_dep = dep_fact * 22.67
-
-                # Replace the placeholder strings with the actual parameter values
-                rvp_txt = rvp_txt.replace("s875_dep", str(s875_dep))
-                rvp_txt = rvp_txt.replace("s876_dep", str(s876_dep))
-                rvp_txt = rvp_txt.replace("s877_dep", str(s877_dep))
-                rvp_txt = rvp_txt.replace("s878_dep", str(s878_dep))
-                rvp_txt = rvp_txt.replace("s880_dep", str(s880_dep))
-                rvp_txt = rvp_txt.replace("s881_dep", str(s881_dep))
-                rvp_txt = rvp_txt.replace("s882_dep", str(s882_dep))
-                rvp_txt = rvp_txt.replace("s883_dep", str(s883_dep))
-                rvp_txt = rvp_txt.replace("s900_dep", str(s900_dep))
-                rvp_txt = rvp_txt.replace("s901_dep", str(s901_dep))
-                rvp_txt = rvp_txt.replace("s902_dep", str(s902_dep))
-                rvp_txt = rvp_txt.replace("s903_dep", str(s903_dep))
-
-                # -1 index since bedslope parameter appended last in spotpy setup class
-                bedslope_mult = _param_vector[-1]  
-
-                def scale_bedslope(match):
-                    original_value = float(match.group(1))
-                    new_value = original_value * bedslope_mult
-                    return f":Bedslope\t\t\t {new_value:.7f}"
-                
-                # This regex finds any ":Bedslope <number>" line and replaces it
-                rvp_txt = re.sub(r":Bedslope\s+([0-9.Ee+-]+)", scale_bedslope, rvp_txt)
-                
-                # Write the text with the actual parameter value to the actual .rvp file
-                self.write(rvp_txt)
-            else:
+            if _param_set not in  ["no_split", "clrh_split", "phydap_split", "no_runoff_scale"]:
                 raise ValueError("Unrecognized parameter set for .rvp update.")
+            
+            else:
+                if _dep_scale:
+                    dep_fact = _param_vector["dep_fact"]  # Generic depth factor from the parameter vector
+                    if dep_fact > 1.2 or dep_fact < 0.5:
+                        raise ValueError("Depth factor must be between 0.5 and 1.2.")
+                
+                else:
+                    dep_fact = 1
+                    
+                                
 
-    def rvh_update(self, _param_set, _routing, _param_vector):
+            seep_k = _param_vector["seep_k"]  # Seepage factor from the parameter vector
+            if seep_k > 0.1 or seep_k < 0.0:
+                raise ValueError("Seepage factor must be between 0.0 and 0.1.")
+
+            # Replace the placeholder string with the actual parameter value
+            rvp_txt = rvp_txt.replace("seep_fact", str(seep_k))
+
+            # Calculate new depth values for different subbasins by multiplying
+            # the generic depth factor by constants
+            s875_dep = dep_fact * 21.23
+            s876_dep = dep_fact * 27.39
+            s877_dep = dep_fact * 34.49
+            s878_dep = dep_fact * 5.94
+            s880_dep = dep_fact * 14.92
+            s881_dep = dep_fact * 29.12
+            s882_dep = dep_fact * 21.76
+            s883_dep = dep_fact * 66.96
+            s900_dep = dep_fact * 109.17
+            s901_dep = dep_fact * 999.75
+            s902_dep = dep_fact * 9.56
+            s903_dep = dep_fact * 22.67
+
+            # Replace the placeholder strings with the actual parameter values
+            rvp_txt = rvp_txt.replace("s875_dep", str(s875_dep))
+            rvp_txt = rvp_txt.replace("s876_dep", str(s876_dep))
+            rvp_txt = rvp_txt.replace("s877_dep", str(s877_dep))
+            rvp_txt = rvp_txt.replace("s878_dep", str(s878_dep))
+            rvp_txt = rvp_txt.replace("s880_dep", str(s880_dep))
+            rvp_txt = rvp_txt.replace("s881_dep", str(s881_dep))
+            rvp_txt = rvp_txt.replace("s882_dep", str(s882_dep))
+            rvp_txt = rvp_txt.replace("s883_dep", str(s883_dep))
+            rvp_txt = rvp_txt.replace("s900_dep", str(s900_dep))
+            rvp_txt = rvp_txt.replace("s901_dep", str(s901_dep))
+            rvp_txt = rvp_txt.replace("s902_dep", str(s902_dep))
+            rvp_txt = rvp_txt.replace("s903_dep", str(s903_dep))
+    
+
+            # -1 index since bedslope parameter appended last in spotpy setup class
+            bedslope_mult = _param_vector["bedslope_mult"]
+
+            def scale_bedslope(match):
+                original_value = float(match.group(1))
+                new_value = original_value * bedslope_mult
+                return f":Bedslope\t\t\t {new_value:.7f}"
+            
+            # This regex finds any ":Bedslope <number>" line and replaces it
+            rvp_txt = re.sub(r":Bedslope\s+([0-9.Ee+-]+)", scale_bedslope, rvp_txt)
+            
+            # Write the text with the actual parameter value to the actual .rvp file
+            self.write(rvp_txt)
+            
+
+    def rvh_update(self, _param_set, _routing, _channel_scale, _param_vector):
         """
         Update the RVH file with new parameters.
         """
@@ -156,14 +166,20 @@ class RavenFile:
 
         
             # Replace the seepage factor placeholder with the current seep_k value
-            seep_k = _param_vector[1]  # Seepage factor from the parameter vector
+            seep_k = _param_vector["seep_k"]  # Seepage factor from the parameter vector
             if seep_k > 0.1 or seep_k < 0.0:
                 raise ValueError("Seepage factor must be between 0.0 and 0.1.")
             rvh_txt = rvh_txt.replace("seep_fact", str(seep_k))
             
-            if _param_set == "no_split":
-                # Extract parameters from the parameter vector
-                basin_fact = _param_vector[2]  # Basin area factor from the parameter vector
+            if _param_set in ["no_split", "no_runoff_scale"]:
+                    
+                if _param_set == "no_split":    
+                    # Extract parameters from the parameter vector
+                    basin_fact = _param_vector["basin_fact"]  # Basin area factor from the parameter vector
+
+                elif _param_set == "no_runoff_scale":
+                    # Use a constant basin area factor for no runoff scale
+                    basin_fact = 1.0
 
                 # Calculate basin area values similarly by multiplying the basin_fact by constants
                 H567_area = basin_fact * 53.9908
@@ -232,9 +248,9 @@ class RavenFile:
             rvh_txt = rvh_txt.replace("H578_area", str(H578_area))
 
             if _routing:
-                t_peak_fact = _param_vector[-3]  # Transport peak factor from the parameter vector
-                t_conc_fact = _param_vector[-4] * t_peak_fact  # Transport concentration factor from the parameter vector
-  
+                t_peak_fact = _param_vector["t_peak_fact"]  # Transport peak factor from the parameter vector
+                t_conc_fact = _param_vector["tc_tp_fact"] * t_peak_fact  # Transport concentration factor from the parameter vector
+
                 tc_875 = 15.01*t_conc_fact
                 tc_876 = 9.15*t_conc_fact
                 tc_877 = 6.62*t_conc_fact
@@ -246,9 +262,9 @@ class RavenFile:
                 tc_900 = 3.40*t_conc_fact
                 tc_901 = 4.02*t_conc_fact
                 tc_902 = 3.40*t_conc_fact 
-                tc_903 = 22.47*t_conc_fact         
-                
+                tc_903 = 22.47*t_conc_fact
 
+                
                 tp_875 = 9.00*t_peak_fact
                 tp_876 = 5.49*t_peak_fact
                 tp_877 = 3.97*t_peak_fact
@@ -262,7 +278,12 @@ class RavenFile:
                 tp_902 = 2.04*t_peak_fact
                 tp_903 = 13.48*t_peak_fact
 
-                qref_scale = _param_vector[-2]  # Qref scale factor from the parameter vector
+                if _channel_scale:
+
+                    qref_scale = _param_vector["qref_scale"]  # Qref scale factor from the parameter vector
+
+                else:
+                    qref_scale = 1
                 
                 qref_875 = qref_scale * 1.08
                 qref_876 = qref_scale * 0.074
@@ -509,6 +530,9 @@ class RavenHydrograph:
             self.eval = self.eval.loc[self.eval["date_time"].dt.month.lt(7)]
         
         noon_index = self.eval.index[self.eval["date_time"].dt.hour == 12]
+        if len(noon_index) == 0:
+            print("No noon data found in the hydrograph. Trying 1pm.")
+            noon_index = self.eval.index[self.eval["date_time"].dt.hour == 13]
 
         noon_index_interval = int(noon_index[1]-noon_index[0])
 

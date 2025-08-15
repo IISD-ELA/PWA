@@ -29,17 +29,18 @@ DATA_CAL_NEW = os.path.join(prj_path, r"Data\Calibration\cypress")
 print(DATA_CAL_NEW)
 
 # Set up the calibration 
-calibrator = spot_setup_rvn(raven_name, DATA_CAL_NEW, obj_fn= "kge_adj", split_areas = "phydap", \
-                            spring_eval= True, low_seep=True, routing = True, mpi_cores=14)
+calibrator = spot_setup_rvn(raven_name, DATA_CAL_NEW, obj_fn= "kge_adj", split_areas = "none", \
+                            spring_eval= True, low_seep=True, routing = True, mpi_cores=4)
 
  
-sampler=sp.algorithms.rope(calibrator, # must use this or ROPE flattens the parameter space and collapses!!
+sampler=sp.algorithms.demcz(calibrator, # must use this or ROPE flattens the parameter space and collapses!!
                            parallel='mpi',
-                           dbname='lhs_ph_spr_lsp_routing_5k',
-                           dbformat='csv')
+                           dbname='demc_routing_only_2hr',
+                           dbformat='csv',
+                           save_sim=False)
 
 
 print("Starting the calibration process... Sampler rank is:" + str(sampler.repeat.rank))
 
-rep = 5000
+rep = 200
 sampler.sample(rep)

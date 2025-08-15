@@ -42,12 +42,12 @@ def robust_copy(source_path, destination_path, retries=3, delay=0.1):
 class spot_setup_rvn(object):
     """
     A class for setting up SpotPy calibrations specifically for the Raven hydrological model.
-    This class integrates the Raven model output with SpotPy's parameter sampling and evaluation framework.
+    This class integrates the Raven model output with SpotPy's parameter sampling and evaluation framework. 
     """
     
     def __init__(self, model_name, calib_dir, obj_fn = "kge_adj", 
                  split_areas = "None", spring_eval = True, 
-                 low_seep = False, routing = False, mpi_cores = 0):
+                 low_seep = False, routing = False, dep_scaling = False, runoff_scaling = False, channel_scaling = False, mpi_cores = 0):
         """
         Initialize the calibration setup.
 
@@ -61,6 +61,9 @@ class spot_setup_rvn(object):
             calib_dir = calib_dir[:-1]
 
         self.model_name = model_name
+        self.dep_scale = dep_scaling
+        self.runoff_scale = runoff_scaling
+        self.channel_scale = channel_scaling
 
         # Create a unique directory for each calibration core
         if mpi_cores < 2:
@@ -110,48 +113,55 @@ class spot_setup_rvn(object):
         else:
             seep_max = 0.10
 
-        self.param_distributions = [
-                            sp.parameter.Uniform("dep_fact", low=0.70, high=1.00),
-                            sp.parameter.Uniform("seep_k", low=0.00, high=seep_max)
-        ]
+        self.param_distributions = []
 
-        if split_areas.lower() == "clrh":
-            self.param_distributions.append([
-                            sp.parameter.Uniform("basin_fact_567", low=0.80, high=1.20),
-                            sp.parameter.Uniform("basin_fact_568", low=0.80, high=1.20),
-                            sp.parameter.Uniform("basin_fact_569", low=0.80, high=1.20),
-                            sp.parameter.Uniform("basin_fact_570", low=0.80, high=1.20),
-                            sp.parameter.Uniform("basin_fact_571", low=0.80, high=1.20),
-                            sp.parameter.Uniform("basin_fact_572", low=0.80, high=1.20),
-                            sp.parameter.Uniform("basin_fact_573", low=0.80, high=1.20),
-                            sp.parameter.Uniform("basin_fact_574", low=0.80, high=1.20),
-                            sp.parameter.Uniform("basin_fact_575", low=0.80, high=1.20),
-                            sp.parameter.Uniform("basin_fact_576", low=0.80, high=1.20),
-                            sp.parameter.Uniform("basin_fact_577", low=0.80, high=1.20),
-                            sp.parameter.Uniform("basin_fact_578", low=0.80, high=1.20)
-                        ])
-            self.param_set = "clrh_split"
-
-        elif split_areas.lower() == "phydap":
-            self.param_distributions.append(sp.parameter.Uniform("basin1_fact", low=0.80, high=1.20))
-            self.param_distributions.append(sp.parameter.Uniform("basin2_fact", low=0.80, high=1.20))
-
-            self.param_set = "phydap_split"
+        if self.dep_scale:
+            self.param_distributions.append(sp.parameter.Uniform("dep_fact", low=0.70, high=1.00))
         
-        elif split_areas.lower() == "none" or split_areas.lower() == "no_split":
-            self.param_distributions.append(sp.parameter.Uniform("basin_fact", low=0.80, high=1.20))
-            self.param_set = "no_split"
-        
+        self.param_distributions.append(sp.parameter.Uniform("seep_k", low=0.00, high=seep_max))
+
+        if self.runoff_scale:
+
+            if split_areas.lower() == "clrh":
+                self.param_distributions.append([
+                                sp.parameter.Uniform("basin_fact_567", low=0.80, high=1.20),
+                                sp.parameter.Uniform("basin_fact_568", low=0.80, high=1.20),
+                                sp.parameter.Uniform("basin_fact_569", low=0.80, high=1.20),
+                                sp.parameter.Uniform("basin_fact_570", low=0.80, high=1.20),
+                                sp.parameter.Uniform("basin_fact_571", low=0.80, high=1.20),
+                                sp.parameter.Uniform("basin_fact_572", low=0.80, high=1.20),
+                                sp.parameter.Uniform("basin_fact_573", low=0.80, high=1.20),
+                                sp.parameter.Uniform("basin_fact_574", low=0.80, high=1.20),
+                                sp.parameter.Uniform("basin_fact_575", low=0.80, high=1.20),
+                                sp.parameter.Uniform("basin_fact_576", low=0.80, high=1.20),
+                                sp.parameter.Uniform("basin_fact_577", low=0.80, high=1.20),
+                                sp.parameter.Uniform("basin_fact_578", low=0.80, high=1.20)
+                            ])
+                self.param_set = "clrh_split"
+
+            elif split_areas.lower() == "phydap":
+                self.param_distributions.append(sp.parameter.Uniform("basin1_fact", low=0.80, high=1.20))
+                self.param_distributions.append(sp.parameter.Uniform("basin2_fact", low=0.80, high=1.20))
+
+                self.param_set = "phydap_split"
+            
+            elif split_areas.lower() == "none" or split_areas.lower() == "no_split":
+                self.param_distributions.append(sp.parameter.Uniform("basin_fact", low=0.80, high=1.20))
+                self.param_set = "no_split"
+            
+            else:
+                raise ValueError(f"Unsupported split_areas value: {split_areas}. Use 'clrh', 'phydap', or 'none'.")
+            
         else:
-            raise ValueError(f"Unsupported split_areas value: {split_areas}. Use 'clrh', 'phydap', or 'none'.")
+            self.param_set = "no_runoff_scale"
 
         if routing:
             self.param_distributions.append(sp.parameter.Uniform("tc_tp_fact", low=1.1, high=2.5))
-            self.param_distributions.append(sp.parameter.Uniform("t_peak_fact", low=0.4, high=1.20))
-            self.param_distributions.append(sp.parameter.Uniform("qref_scale", low=0.8, high=1.20))
+            self.param_distributions.append(sp.parameter.Uniform("t_peak_fact", low=0.2, high=1.20))
+            self.param_distributions.append(sp.parameter.Uniform("qref_scale", low=0.2, high=1.20))
         
         # Add bedslope scale factor/multiplier parameter (applies to all subbasins)
-        self.param_distributions.append(sp.parameter.Uniform("bedslope_mult", low=0.5, high=1.5))
+        self.param_distributions.append(sp.parameter.Uniform("bedslope_mult", low=0.5, high=5.5))
         
         self.obj_fn = obj_fn
         self.spring_eval = spring_eval
@@ -201,15 +211,15 @@ class spot_setup_rvn(object):
                 rvp_channel_props = rv.RavenFile("channel_properties_T_ERA5.rvp", calib_dir=sim_dir, extension = "rvp")
 
                 # Update the .rvp file with the parameter values from param_vector
-                rvp.rvp_update(self.param_set, param_vector)
+                rvp.rvp_update(self.param_set, self.dep_scale, param_vector)
                 
                 # Update the channel properties file with the parameter values from param_vector
-                rvp_channel_props.rvp_update(self.param_set, param_vector)
+                rvp_channel_props.rvp_update(self.param_set, self.dep_scale, param_vector)
             elif ext == "rvh":
                 # Create a RavenFile object representing the .rvh file for the model
                 rvh = rv.RavenFile(f"{self.model_name}.rvh", calib_dir=sim_dir,  extension = "rvh")
                 # Update the .rvh file with the parameter values from param_vector
-                rvh.rvh_update(self.param_set, self.routing, param_vector)    
+                rvh.rvh_update(self.param_set, self.routing, self.channel_scale, param_vector)    
             else:
                 # Raise an error if the file extension is not supported
                 raise ValueError(f"Unsupported file extension: {ext}")
