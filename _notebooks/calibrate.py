@@ -8,6 +8,7 @@ import os
 import sys
 import pandas as pd
 import spotpy as sp
+from datetime import datetime
 from pathlib import Path
 
 # Ensure the project directory is in the Python path
@@ -30,17 +31,19 @@ print(DATA_CAL_NEW)
 
 # Set up the calibration 
 calibrator = spot_setup_rvn(raven_name, DATA_CAL_NEW, obj_fn= "kge_adj", split_areas = "none", \
-                            spring_eval= True, low_seep=True, routing = True, mpi_cores=4)
+                            spring_eval= True, low_seep=True, routing = True, dep_scaling=True, runoff_scaling=True, mpi_cores=6)
 
- 
-sampler=sp.algorithms.demcz(calibrator, # must use this or ROPE flattens the parameter space and collapses!!
+
+dbname_str = 'rope' + datetime.now().strftime('%Y%m%d_%H') 
+
+sampler=sp.algorithms.rope(calibrator, # must use this or ROPE flattens the parameter space and collapses!!
                            parallel='mpi',
-                           dbname='demc_routing_only_2hr',
+                           dbname=dbname_str,
                            dbformat='csv',
-                           save_sim=False)
+                           save_sim=True)
 
 
 print("Starting the calibration process... Sampler rank is:" + str(sampler.repeat.rank))
 
-rep = 200
+rep = 2000
 sampler.sample(rep)

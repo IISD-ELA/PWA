@@ -8,6 +8,7 @@ import os
 import sys
 import pandas as pd
 import spotpy as sp
+from datetime import datetime
 from pathlib import Path
 
 # Ensure the project directory is in the Python path
@@ -30,15 +31,17 @@ print(DATA_CAL_NEW)
 
 # Set up the calibration 
 # Routing
-# calibrator = spot_setup_rvn(raven_name, DATA_CAL_NEW, obj_fn= "nse", split_areas = "None", \
-#                             spring_eval= True, low_seep=True, routing = True, mpi_cores= 10)
+calibrator = spot_setup_rvn(raven_name, DATA_CAL_NEW, obj_fn= "nse", split_areas = "None", \
+                            spring_eval= True, low_seep=True, routing = True, mpi_cores= 10)
 
-runoff_calibrator = spot_setup_rvn(raven_name, DATA_CAL_NEW, obj_fn= "nse", split_areas = "None", \
-                                    spring_eval= True, low_seep=True, routing = False, mpi_cores= 10)
+# runoff_calibrator = spot_setup_rvn(raven_name, DATA_CAL_NEW, obj_fn= "nse", split_areas = "None", \
+#                                     spring_eval= True, low_seep=True, routing = False, mpi_cores= 10)
 
-sampler=sp.algorithms.fast(runoff_calibrator, # must use this or ROPE flattens the parameter space and collapses!!
+dbname_str = 'fast_routing'+ datetime.now().strftime('%Y%m%d_%H')
+
+sampler=sp.algorithms.fast(calibrator, # must use this or ROPE flattens the parameter space and collapses!!
                            parallel='mpi',
-                           dbname='fast_routing',
+                           dbname=dbname_str,
                            dbformat='csv',
                            save_sim=False)
 

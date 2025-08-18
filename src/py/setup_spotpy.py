@@ -157,7 +157,7 @@ class spot_setup_rvn(object):
 
         if routing:
             self.param_distributions.append(sp.parameter.Uniform("tc_tp_fact", low=1.1, high=2.5))
-            self.param_distributions.append(sp.parameter.Uniform("t_peak_fact", low=0.2, high=1.20))
+            self.param_distributions.append(sp.parameter.Uniform("t_peak_fact", low=0.2, high=0.8))
             self.param_distributions.append(sp.parameter.Uniform("qref_scale", low=0.2, high=1.20))
         
         # Add bedslope scale factor/multiplier parameter (applies to all subbasins)
@@ -236,22 +236,9 @@ class spot_setup_rvn(object):
         sim = sim_hydrograph.read_sim(subbasin_id, start_yr=2003, end_yr=2021, spring_only = self.spring_eval, refresh=True).reset_index(drop=True)
         # sim_2003 = sim.loc[sim["date"].year >= 2003]
 
-        return sim
-    
-
-
-    def evaluation(self):
-        """
-        Get model diagnostics after running the Raven model.
-        """
-
-
         # read output
         obs = self.hydrograph.read_obs(start_yr=2003, end_yr=2021, spring_only = self.spring_eval, refresh=True).reset_index(drop=True)
 
-        return obs
-
-    def objectivefunction(self, simulation=None, evaluation=None):
         """
         Calculate the objective function value to assess model performance.
 
@@ -264,21 +251,21 @@ class spot_setup_rvn(object):
         float: Adjusted Nash-Sutcliffe Efficiency (NSE) as the objective function value.
                Lower values indicate better model fit (0 is perfect fit).
         """
-        print("Simulation:", simulation, flush=True)
-        print("Evaluation:", evaluation, flush=True)
-        print("Simulation type:", type(simulation), flush=True)
-        print("Evaluation type:", type(evaluation), flush=True)
-        
-        if simulation is None or evaluation is None:
+        print("Simulation:", sim, flush=True)
+        print("Evaluation:", obs, flush=True)
+        print("Simulation type:", type(sim), flush=True)
+        print("Evaluation type:", type(obs), flush=True)
+
+        if sim is None or obs is None:
             raise ValueError("Simulation and evaluation data must be provided.")
-        
-        if len(simulation) != len(evaluation):
+
+        if len(sim) != len(obs):
             raise ValueError("Simulation and evaluation data must have the same length.")
-        
-        non_null = evaluation.notnull()
-        
-        valid_sim = simulation[non_null]
-        valid_eval = evaluation[non_null]
+
+        non_null = obs.notnull()
+
+        valid_sim = sim[non_null]
+        valid_eval = obs[non_null]
         if valid_sim.empty or valid_eval.empty:
             raise ValueError("Simulation and evaluation data must contain non-null values.")
 
@@ -286,27 +273,48 @@ class spot_setup_rvn(object):
         # NSE is already adjusted in the built-in spotpy function
 
         if self.obj_fn == "kge_adj" :
-            kge_adj = 1-np.sqrt((2*(np.corrcoef(valid_sim, valid_eval)[0,1]-1))**2 + \
+            kge_adj = pd.Series(1-np.sqrt((2*(np.corrcoef(valid_sim, valid_eval)[0,1]-1))**2 + \
                             (1-(np.mean(valid_sim)/np.mean(valid_eval)))**2 + \
                             ((1-(np.std(valid_sim)/np.std(valid_eval)))/2)**2 \
-            )
+            ))
 
             # Force this into a scalar value (since sim and eval are pd.series,
             # the spotpy nse function might sometimes return arrays, which is BAD,
             # so we must prevent this from happening!)
-            kge_adj = np.squeeze(kge_adj).item()
+            # kge_adj = np.squeeze(kge_adj).item()
 
             print("Ajusted Kling-Gupta Efficiency (KGE):", kge_adj)
             return kge_adj
         elif self.obj_fn == "nse":
-            nse = 1- np.sum((valid_sim - valid_eval) ** 2) / np.sum((valid_eval - np.mean(valid_eval)) ** 2)
-            nse = np.squeeze(nse).item()
+            nse = pd.Series(1- np.sum((valid_sim - valid_eval) ** 2) / np.sum((valid_eval - np.mean(valid_eval)) ** 2))
+            # nse = np.squeeze(nse).item()
             print("Nash-Sutcliffe Efficiency (NSE):", nse)
             return nse
         else:
             raise ValueError(f"Unsupported objective function: {self.obj_fn}. Use 'kge_adj' or 'nse'.")
 
 
+    def evaluation(self):
+        """
+        Get model diagnostics after running the Raven model.
+        """
+        if self.obj_fn == "kge_adj":
+            # Return a dummy value for KGE evaluation
+            target_value = pd.Series(1)
         
+        elif self.obj_fn == "nse":
+            target_value = pd.Series(1)
+
+        else:
+            raise ValueError(f"Unsupported objective function: {self.obj_fn}. Use 'kge_adj' or 'nse'.")
+
+
+        return target_value
+
+    def objectivefunction(self, simulation=None, evaluation=None):
+
+        like = np.squeeze(simulation)
+
+        return like
 
 
