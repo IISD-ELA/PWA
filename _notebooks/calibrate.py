@@ -30,11 +30,13 @@ DATA_CAL_NEW = os.path.join(prj_path, r"Data\Calibration\cypress")
 print(DATA_CAL_NEW)
 
 # Set up the calibration 
-calibrator = spot_setup_rvn(raven_name, DATA_CAL_NEW, obj_fn= "kge_adj", split_areas = "none", \
+calibrator = spot_setup_rvn(raven_name, DATA_CAL_NEW, obj_fn= "nse_pbias", split_areas = "none", \
                             spring_eval= True, low_seep=True, routing = True, dep_scaling=True, runoff_scaling=True, mpi_cores=6)
 
 
-dbname_str = 'rope' + datetime.now().strftime('%Y%m%d_%H') 
+dbname_str = 'rope_rdrs_' + datetime.now().strftime('%Y%m%d_%H')
+
+print('db name is ' + dbname_str + '.csv')
 
 sampler=sp.algorithms.rope(calibrator, # must use this or ROPE flattens the parameter space and collapses!!
                            parallel='mpi',

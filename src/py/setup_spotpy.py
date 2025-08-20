@@ -116,7 +116,7 @@ class spot_setup_rvn(object):
         self.param_distributions = []
 
         if self.dep_scale:
-            self.param_distributions.append(sp.parameter.Uniform("dep_fact", low=0.70, high=1.00))
+            self.param_distributions.append(sp.parameter.Uniform("dep_fact", low=0.60, high=1.00))
         
         self.param_distributions.append(sp.parameter.Uniform("seep_k", low=0.00, high=seep_max))
 
@@ -156,12 +156,12 @@ class spot_setup_rvn(object):
             self.param_set = "no_runoff_scale"
 
         if routing:
-            self.param_distributions.append(sp.parameter.Uniform("tc_tp_fact", low=1.1, high=2.5))
+            self.param_distributions.append(sp.parameter.Uniform("tc_tp_fact", low=1.4, high=2.2))
             self.param_distributions.append(sp.parameter.Uniform("t_peak_fact", low=0.2, high=0.8))
-            self.param_distributions.append(sp.parameter.Uniform("qref_scale", low=0.2, high=1.20))
+            self.param_distributions.append(sp.parameter.Uniform("qref_scale", low=0.2, high=1.0))
         
         # Add bedslope scale factor/multiplier parameter (applies to all subbasins)
-        self.param_distributions.append(sp.parameter.Uniform("bedslope_mult", low=0.5, high=5.5))
+        self.param_distributions.append(sp.parameter.Uniform("bedslope_mult", low=1.5, high=5.0))
         
         self.obj_fn = obj_fn
         self.spring_eval = spring_eval
@@ -290,6 +290,15 @@ class spot_setup_rvn(object):
             # nse = np.squeeze(nse).item()
             print("Nash-Sutcliffe Efficiency (NSE):", nse)
             return nse
+        
+        elif self.obj_fn == "nse_pbias":
+            nse = pd.Series(1- np.sum((valid_sim - valid_eval) ** 2) / np.sum((valid_eval - np.mean(valid_eval)) ** 2))
+            pbias = pd.Series(np.sum(valid_sim - valid_eval) / np.sum(valid_eval))
+            
+            weighted_obj = 2*(nse - 1) - np.sqrt(pbias**2)
+
+            return weighted_obj
+
         else:
             raise ValueError(f"Unsupported objective function: {self.obj_fn}. Use 'kge_adj' or 'nse'.")
 
@@ -304,6 +313,9 @@ class spot_setup_rvn(object):
         
         elif self.obj_fn == "nse":
             target_value = pd.Series(1)
+
+        elif self.obj_fn == "nse_pbias":
+            target_value = pd.Series(0)
 
         else:
             raise ValueError(f"Unsupported objective function: {self.obj_fn}. Use 'kge_adj' or 'nse'.")
