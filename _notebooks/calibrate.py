@@ -34,7 +34,7 @@ calibrator = spot_setup_rvn(raven_name, DATA_CAL_NEW, obj_fn= "nse_pbias", split
                             spring_eval= True, low_seep=True, routing = True, dep_scaling=True, runoff_scaling=True, mpi_cores=6)
 
 
-dbname_str = 'rope_rdrs_' + datetime.now().strftime('%Y%m%d_%H')
+dbname_str = 'aws_test' + datetime.now().strftime('%Y%m%d_%H')
 
 print('db name is ' + dbname_str + '.csv')
 
@@ -47,5 +47,5 @@ sampler=sp.algorithms.rope(calibrator, # must use this or ROPE flattens the para
 
 print("Starting the calibration process... Sampler rank is:" + str(sampler.repeat.rank))
 
-rep = 2000
+rep = 20
 sampler.sample(rep)
