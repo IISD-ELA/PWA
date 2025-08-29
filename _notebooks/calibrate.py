@@ -31,7 +31,7 @@ print(DATA_CAL_NEW)
 
 # Set up the calibration 
 calibrator = spot_setup_rvn(raven_name, DATA_CAL_NEW, obj_fn= "nse_pbias", split_areas = "none", \
-                            spring_eval= True, low_seep=True, routing = True, dep_scaling=True, runoff_scaling=True, mpi_cores=6)
+                            spring_eval= True, low_seep=True, routing = True, dep_scaling=True, runoff_scaling=True, mpi_cores=2)
 
 
 dbname_str = 'aws_test' + datetime.now().strftime('%Y%m%d_%H')
