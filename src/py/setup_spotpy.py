@@ -89,14 +89,14 @@ class spot_setup_rvn(object):
 
             # Copy only if this process owns the directory
             for item in os.listdir(calib_dir):
-                s = os.path.join(calib_dir, item)
-                d = os.path.join(self.working_dir, item)
+                s = os.path.join(calib_dir, item).replace('\\','/')
+                d = os.path.join(self.working_dir, item).replace('\\','/')
 
                 if os.path.isdir(s):
                     os.makedirs(d, exist_ok=True)
                     for sub_item in os.listdir(s):
-                        sub_s = os.path.join(s, sub_item)
-                        sub_d = os.path.join(d, sub_item)
+                        sub_s = os.path.join(s, sub_item).replace('\\','/')
+                        sub_d = os.path.join(d, sub_item).replace('\\','/')
                         if os.path.isdir(sub_s):
                             shutil.copytree(sub_s, sub_d, dirs_exist_ok=True)
                         else:

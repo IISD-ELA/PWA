@@ -60,10 +60,10 @@ class RavenFile:
         self.filename = filename
 
         # Set file path (e.g., "data/calibration/MyModel.rvp")
-        self.filepath = os.path.join(calib_dir, self.filename)
+        self.filepath = os.path.join(calib_dir, self.filename).replace('\\','/')
 
         # Set path to the template version of the file (e.g., "data/calibration/templates/MyModel.rvp.tpl")
-        self.tpl_path = os.path.join(calib_dir, "templates", self.filename + ".tpl")
+        self.tpl_path = os.path.join(calib_dir, "templates", self.filename + ".tpl").replace('\\','/')
 
 
     def write(self, content):
@@ -403,14 +403,14 @@ def read_rv_diag(rv_path: str, diag_names: list[str] = None) -> dict:
     """
 
     # Construct the path to the "output" folder
-    output_dir = os.path.join(rv_path, "output")
+    output_dir = os.path.join(rv_path, "output").replace('\\','/')
 
     diagnostic_csv = None
 
     # Search for a CSV in output folder with "diagnostic" in its name
     for file in os.listdir(output_dir):
         if file.lower().endswith(".csv") and "diagnostic" in file.lower():
-            diagnostic_csv = os.path.join(output_dir, file)
+            diagnostic_csv = os.path.join(output_dir, file).replace('\\','/')
             break
 
     diagnostic_data = {}
@@ -463,13 +463,13 @@ class RavenHydrograph:
         pd.DataFrame: DataFrame containing hydrograph data (time series of discharge etc.).
         Returns an empty DataFrame if no hydrograph CSV file is found.
         """
-        output_dir = os.path.join(self.rv_path, "output")
+        output_dir = os.path.join(self.rv_path, "output").replace('\\','/')
         output_csv = None
 
         # Search for a CSV in output folder with "hydrographs" in its name
         for file in os.listdir(output_dir):
             if file.lower().endswith(".csv") and "hydrographs" in file.lower():
-                output_csv = os.path.join(output_dir, file)
+                output_csv = os.path.join(output_dir, file).replace('\\','/')
                 break
         
         # If the hydrograph CSV was found, load into a DataFrame
