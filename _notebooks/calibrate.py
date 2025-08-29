@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 
 # Ensure the project directory is in the Python path
-prj_path = os.path.abspath(os.path.join(os.getcwd(), '..')) + "/PWA"
+prj_path = os.path.abspath(os.path.join(os.getcwd(), '..').replace('\\','/')) + "/PWA"
 if prj_path not in sys.path:
     sys.path.insert(0, prj_path)
 
@@ -23,10 +23,10 @@ from src.py.setup_spotpy import *
 
 
 # Check for Raven.exe in the DATA_CAL folder
-raven_exe_path = os.path.join(DATA_CAL, "Raven.exe")
+raven_exe_path = os.path.join(DATA_CAL, "Raven.exe").replace('\\','/')
 raven_name = "CypressRiverT_ERA5"
 
-DATA_CAL_NEW = os.path.join(prj_path, r"Data\Calibration\cypress")
+DATA_CAL_NEW = os.path.join(prj_path, r"Data\Calibration\cypress").replace('\\','/')
 print(DATA_CAL_NEW)
 
 # Set up the calibration 
