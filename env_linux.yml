@@ -1,3 +1,4 @@
+name: pwa_dev
 channels:
   - conda-forge
   - defaults
