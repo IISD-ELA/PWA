@@ -154,7 +154,7 @@ class RavenFile:
             self.write(rvp_txt)
             
 
-    def rvh_update(self, _param_set, _routing, _channel_scale, _param_vector):
+    def rvh_update(self, _param_set, _routing, _channel_scale, _param_vector, _aspect_ratios):
         """
         Update the RVH file with new parameters.
         """
@@ -265,18 +265,19 @@ class RavenFile:
                 tc_903 = 22.47*t_conc_fact
 
                 
-                tp_875 = 9.00*t_peak_fact
-                tp_876 = 5.49*t_peak_fact
-                tp_877 = 3.97*t_peak_fact
-                tp_878 = 4.59*t_peak_fact
-                tp_880 = 7.05*t_peak_fact
-                tp_881 = 10.00*t_peak_fact
-                tp_882 = 6.48*t_peak_fact
-                tp_883 = 6.37*t_peak_fact
-                tp_900 = 2.04*t_peak_fact
-                tp_901 = 2.41*t_peak_fact
-                tp_902 = 2.04*t_peak_fact
-                tp_903 = 13.48*t_peak_fact
+                tp_875 = 9.00*t_peak_fact/_aspect_ratios["875"]
+                tp_876 = 5.49*t_peak_fact/_aspect_ratios["876"]
+                tp_877 = 3.97*t_peak_fact/_aspect_ratios["877"]
+                tp_878 = 4.59*t_peak_fact/_aspect_ratios["878"]
+                tp_880 = 7.05*t_peak_fact/_aspect_ratios["880"]
+                tp_881 = 10.00*t_peak_fact/_aspect_ratios["881"]
+                tp_882 = 6.48*t_peak_fact/_aspect_ratios["882"]
+                tp_883 = 6.37*t_peak_fact/_aspect_ratios["883"]
+                tp_900 = 2.04*t_peak_fact/_aspect_ratios["900"]
+                tp_901 = 2.41*t_peak_fact/_aspect_ratios["901"]
+                tp_902 = 2.04*t_peak_fact/_aspect_ratios["902"]
+                tp_903 = 13.48*t_peak_fact/_aspect_ratios["903"]
+
 
                 if _channel_scale:
 
