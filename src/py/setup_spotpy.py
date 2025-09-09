@@ -66,14 +66,35 @@ class spot_setup_rvn(object):
         self.channel_scale = channel_scaling
 
         # Load aspect ratios from input CSV
-        print("calib_dir: ", calib_dir)
         aspect_ratio_path = calib_dir + r"\input\aspect_ratios.csv"
         print("Aspect ratio path is: ", aspect_ratio_path)
         aspect_ratios_df = pd.read_csv(aspect_ratio_path)
     
-        # Convert to dictionary {subid: aspect_ratio}
+        # Convert to dictionary {SubId: Aspect_Ratio}
         aspect_ratios = aspect_ratios_df.set_index("SubId")["Aspect_Ratio"].to_dict()
         self.aspect_ratios = aspect_ratios 
+
+        # Load original HRU areas from input CSV
+        HRU_areas_path = calib_dir + f"\input\{self.model_name}_HRU_areas.csv"
+        print("HRU areas path is: ", HRU_areas_path)
+        HRU_areas_df = pd.read_csv(HRU_areas_path)
+
+        # Convert to dictionary {HRU: AREA}
+        HRU_areas = HRU_areas_df.set_index("HRU")["AREA"].to_dict()
+        self.HRU_areas = HRU_areas
+
+        # Load original tc and tp values by subbasin from input CSV
+        tp_tc_path = calib_dir + f"\input\{self.model_name}_HRU_areas.csv"
+        print("TP TC path is: ", tp_tc_path)
+        tp_tc_df = pd.read_csv(tp_tc_path)
+
+        # Convert to dictionary {SubId: tp}
+        tps = tp_tc_df.set_index("SubId")["tp"].to_dict()
+        self.tps = tps
+
+        # Convert to dictionary {SubId: tc}
+        tcs = tp_tc_df.set_index("SubId")["tc"].to_dict()
+        self.tcs = tcs  
 
         # Create a unique directory for each calibration core
         if mpi_cores < 2:
@@ -212,13 +233,18 @@ class spot_setup_rvn(object):
         else:
             sim_dir = self.working_dir
 
+        # Path to the depression depths shape file (from dep deps notebook outputs)
+        deps_file_path = sim_dir + r"\input\CLRH_basins_depression_depths.shp"
+
         for ext in exts:
             if ext == "rvp":
                 # Create a RavenFile object representing the .rvp file for the model
-                rvp = rv.RavenFile(f"{self.model_name}.rvp", calib_dir=sim_dir, extension = "rvp")
+                rvp = rv.RavenFile(f"{self.model_name}.rvp", subbasin_deps_file_path=deps_file_path,
+                                   calib_dir=sim_dir, extension="rvp")
 
                 # Create a RavenFile object representing the channel properties file
-                rvp_channel_props = rv.RavenFile("channel_properties_T_ERA5.rvp", calib_dir=sim_dir, extension = "rvp")
+                rvp_channel_props = rv.RavenFile("channel_properties_T_ERA5.rvp", subbasin_deps_file_path=deps_file_path
+                                                 calib_dir=sim_dir, extension = "rvp")
 
                 # Update the .rvp file with the parameter values from param_vector
                 rvp.rvp_update(self.param_set, self.dep_scale, param_vector)
@@ -227,10 +253,11 @@ class spot_setup_rvn(object):
                 rvp_channel_props.rvp_update(self.param_set, self.dep_scale, param_vector)
             elif ext == "rvh":
                 # Create a RavenFile object representing the .rvh file for the model
-                rvh = rv.RavenFile(f"{self.model_name}.rvh", calib_dir=sim_dir,  extension = "rvh")
+                rvh = rv.RavenFile(f"{self.model_name}.rvh", subbasin_deps_file_path=deps_file_path,
+                                   calib_dir=sim_dir,  extension="rvh")
                 # Update the .rvh file with the parameter values from param_vector
                 rvh.rvh_update(self.param_set, self.routing, self.channel_scale, 
-                               param_vector, self.aspect_ratios)    
+                               param_vector, self.aspect_ratios, self.HRU_areas, self.tps, self.tcs)    
             else:
                 # Raise an error if the file extension is not supported
                 raise ValueError(f"Unsupported file extension: {ext}")

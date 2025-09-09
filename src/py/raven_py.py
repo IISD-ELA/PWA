@@ -3,6 +3,7 @@ import subprocess
 import shlex
 import pandas as pd
 import re
+import geopandas as gpd
 
 
 def run_raven(raven_model, data_cal="data/calibration"):
@@ -41,7 +42,8 @@ class RavenFile:
     A class to handle file operations for Raven files.
     """
 
-    def __init__(self, filename, calib_dir = "", extension="rvt"):
+    def __init__(self, filename, subbasin_deps_file_path=None, 
+                 calib_dir = "", extension="rvt"):
         """
         Initialize the RavenFile object with a filename and calibration directory.
 
@@ -50,6 +52,9 @@ class RavenFile:
         filename (str): The base name of the Raven input file (without extension).
         calib_dir (str): The directory where the Raven input files are stored.
         extension (str): The file extension for the Raven input file (default is "rvt").
+        subbasin_deps_file_path (str): Path to shapefile containing SubId and Deps_Depth columns
+                                       (depression depths shapefile output from depression depths
+                                       notebook)
         """
 
         # Check and append appropriate extension if not present
@@ -64,6 +69,15 @@ class RavenFile:
 
         # Set path to the template version of the file (e.g., "data/calibration/templates/MyModel.rvp.tpl")
         self.tpl_path = os.path.join(calib_dir, "templates", self.filename + ".tpl").replace('\\','/')
+
+        # Set dictionary of depression depths by subbasin 
+        if subbasin_deps_file_path:
+            gdf = gpd.read_file(subbasin_deps_file_path)
+            if not {"SubId", "Deps_Depth"}.issubset(gdf.columns):
+                raise ValueError("Shapefile must contain 'SubId' and 'Deps_Depth' columns.")
+            self.base_depths = dict(zip(gdf["SubId"], gdf["Deps_Depth"]))
+        else:
+            self.base_depths = {}
 
 
     def write(self, content):
@@ -99,8 +113,6 @@ class RavenFile:
                 
                 else:
                     dep_fact = 1
-                    
-                                
 
             seep_k = _param_vector["seep_k"]  # Seepage factor from the parameter vector
             if seep_k > 0.1 or seep_k < 0.0:
@@ -108,36 +120,11 @@ class RavenFile:
 
             # Replace the placeholder string with the actual parameter value
             rvp_txt = rvp_txt.replace("seep_fact", str(seep_k))
-
-            # Calculate new depth values for different subbasins by multiplying
-            # the generic depth factor by constants
-            s875_dep = dep_fact * 21.23
-            s876_dep = dep_fact * 27.39
-            s877_dep = dep_fact * 34.49
-            s878_dep = dep_fact * 5.94
-            s880_dep = dep_fact * 14.92
-            s881_dep = dep_fact * 29.12
-            s882_dep = dep_fact * 21.76
-            s883_dep = dep_fact * 66.96
-            s900_dep = dep_fact * 109.17
-            s901_dep = dep_fact * 999.75
-            s902_dep = dep_fact * 9.56
-            s903_dep = dep_fact * 22.67
-
-            # Replace the placeholder strings with the actual parameter values
-            rvp_txt = rvp_txt.replace("s875_dep", str(s875_dep))
-            rvp_txt = rvp_txt.replace("s876_dep", str(s876_dep))
-            rvp_txt = rvp_txt.replace("s877_dep", str(s877_dep))
-            rvp_txt = rvp_txt.replace("s878_dep", str(s878_dep))
-            rvp_txt = rvp_txt.replace("s880_dep", str(s880_dep))
-            rvp_txt = rvp_txt.replace("s881_dep", str(s881_dep))
-            rvp_txt = rvp_txt.replace("s882_dep", str(s882_dep))
-            rvp_txt = rvp_txt.replace("s883_dep", str(s883_dep))
-            rvp_txt = rvp_txt.replace("s900_dep", str(s900_dep))
-            rvp_txt = rvp_txt.replace("s901_dep", str(s901_dep))
-            rvp_txt = rvp_txt.replace("s902_dep", str(s902_dep))
-            rvp_txt = rvp_txt.replace("s903_dep", str(s903_dep))
-    
+            
+            # Calculate and replace subbasin depths
+            for subid, base_depth in self.base_depths.items():
+                depth_value = dep_fact * base_depth
+                rvp_txt = rvp_txt.replace(f"s{subid}_dep", str(depth_value))
 
             # -1 index since bedslope parameter appended last in spotpy setup class
             bedslope_mult = _param_vector["bedslope_mult"]
@@ -146,7 +133,7 @@ class RavenFile:
                 original_value = float(match.group(1))
                 new_value = original_value * bedslope_mult
                 return f":Bedslope\t\t\t {new_value:.7f}"
-            
+                  
             # This regex finds any ":Bedslope <number>" line and replaces it
             rvp_txt = re.sub(r":Bedslope\s+([0-9.Ee+-]+)", scale_bedslope, rvp_txt)
             
@@ -154,7 +141,8 @@ class RavenFile:
             self.write(rvp_txt)
             
 
-    def rvh_update(self, _param_set, _routing, _channel_scale, _param_vector, _aspect_ratios):
+    def rvh_update(self, _param_set, _routing, _channel_scale, _param_vector, _aspect_ratios,
+                   _HRU_areas, _tps, _tcs):
         """
         Update the RVH file with new parameters.
         """
@@ -171,6 +159,8 @@ class RavenFile:
                 raise ValueError("Seepage factor must be between 0.0 and 0.1.")
             rvh_txt = rvh_txt.replace("seep_fact", str(seep_k))
             
+            HRU_scaled_areas = {}
+
             if _param_set in ["no_split", "no_runoff_scale"]:
                     
                 if _param_set == "no_split":    
@@ -180,20 +170,10 @@ class RavenFile:
                 elif _param_set == "no_runoff_scale":
                     # Use a constant basin area factor for no runoff scale
                     basin_fact = 1.0
-
+                
                 # Calculate basin area values similarly by multiplying the basin_fact by constants
-                H567_area = basin_fact * 53.9908
-                H568_area = basin_fact * 17.0623
-                H569_area = basin_fact * 5.1519
-                H570_area = basin_fact * 7.7757
-                H571_area = basin_fact * 21.9306
-                H572_area = basin_fact * 23.7860
-                H573_area = basin_fact * 17.4219
-                H574_area = basin_fact * 15.0882
-                H575_area = basin_fact * 2.1640
-                H576_area = basin_fact * 2.6296
-                H577_area = basin_fact * 2.0595
-                H578_area = basin_fact * 88.3478
+                for hru, area in _HRU_areas.items():
+                    HRU_scaled_areas[hru] = basin_fact*area
 
             elif _param_set == "phydap_split":
                                 # Extract parameters from the parameter vector
@@ -233,51 +213,23 @@ class RavenFile:
             else:
                 raise ValueError("Unrecognized parameter set for .rvh update.")
 
-            # Replace area placeholders with these computed values
-            rvh_txt = rvh_txt.replace("H567_area", str(H567_area))
-            rvh_txt = rvh_txt.replace("H568_area", str(H568_area))
-            rvh_txt = rvh_txt.replace("H569_area", str(H569_area))
-            rvh_txt = rvh_txt.replace("H570_area", str(H570_area))
-            rvh_txt = rvh_txt.replace("H571_area", str(H571_area))
-            rvh_txt = rvh_txt.replace("H572_area", str(H572_area))
-            rvh_txt = rvh_txt.replace("H573_area", str(H573_area))
-            rvh_txt = rvh_txt.replace("H574_area", str(H574_area))
-            rvh_txt = rvh_txt.replace("H575_area", str(H575_area))
-            rvh_txt = rvh_txt.replace("H576_area", str(H576_area))
-            rvh_txt = rvh_txt.replace("H577_area", str(H577_area))
-            rvh_txt = rvh_txt.replace("H578_area", str(H578_area))
+            # Replace placeholders in rvh_txt using the computed areas
+            for hru, area in HRU_scaled_areas.items():
+                placeholder = f"H{hru}_area"
+                rvh_txt = rvh_txt.replace(placeholder, str(area))
+
+            tcs_scaled = {}
+            tps_scaled = {}
 
             if _routing:
                 t_peak_fact = _param_vector["t_peak_fact"]  # Transport peak factor from the parameter vector
                 t_conc_fact = _param_vector["tc_tp_fact"] * t_peak_fact  # Transport concentration factor from the parameter vector
 
-                tc_875 = 15.01*t_conc_fact
-                tc_876 = 9.15*t_conc_fact
-                tc_877 = 6.62*t_conc_fact
-                tc_878 = 7.64*t_conc_fact
-                tc_880 = 11.76*t_conc_fact
-                tc_881 = 16.67*t_conc_fact
-                tc_882 = 10.80*t_conc_fact
-                tc_883 = 10.62*t_conc_fact
-                tc_900 = 3.40*t_conc_fact
-                tc_901 = 4.02*t_conc_fact
-                tc_902 = 3.40*t_conc_fact 
-                tc_903 = 22.47*t_conc_fact
+                for subid, tc in _tcs.items():
+                    tcs_scaled[subid] = tc*t_conc_fact
 
-                
-                tp_875 = 9.00*t_peak_fact/_aspect_ratios["875"]
-                tp_876 = 5.49*t_peak_fact/_aspect_ratios["876"]
-                tp_877 = 3.97*t_peak_fact/_aspect_ratios["877"]
-                tp_878 = 4.59*t_peak_fact/_aspect_ratios["878"]
-                tp_880 = 7.05*t_peak_fact/_aspect_ratios["880"]
-                tp_881 = 10.00*t_peak_fact/_aspect_ratios["881"]
-                tp_882 = 6.48*t_peak_fact/_aspect_ratios["882"]
-                tp_883 = 6.37*t_peak_fact/_aspect_ratios["883"]
-                tp_900 = 2.04*t_peak_fact/_aspect_ratios["900"]
-                tp_901 = 2.41*t_peak_fact/_aspect_ratios["901"]
-                tp_902 = 2.04*t_peak_fact/_aspect_ratios["902"]
-                tp_903 = 13.48*t_peak_fact/_aspect_ratios["903"]
-
+                for subid, tp in _tps.items():
+                    tps_scaled[subid] = tp*t_peak_fact/_aspect_ratios[subid]
 
                 if _channel_scale:
 
@@ -300,71 +252,19 @@ class RavenFile:
                 qref_903 = qref_scale * 0.412
                 
             else:
-                tc_875 = 15.01
-                tc_876 = 9.15
-                tc_877 = 6.62
-                tc_878 = 7.64
-                tc_880 = 11.76
-                tc_881 = 16.67
-                tc_882 = 10.80
-                tc_883 = 10.62
-                tc_900 = 3.40
-                tc_901 = 4.02
-                tc_902 = 3.40
-                tc_903 = 22.47
-
-                tp_875 = 9.00
-                tp_876 = 5.49
-                tp_877 = 3.97
-                tp_878 = 4.59
-                tp_880 = 7.05
-                tp_881 = 10.00
-                tp_882 = 6.48
-                tp_883 = 6.37
-                tp_900 = 2.04
-                tp_901 = 2.41
-                tp_902 = 2.04
-                tp_903 = 13.48
-
-                qref_875 = 1.08
-                qref_876 = 0.074
-                qref_877 = 0.361
-                qref_878 = 0.507
-                qref_880 = 0.095
-                qref_881 = 0.102
-                qref_882 = 0.268
-                qref_883 = 0.065
-                qref_900 = 0.412
-                qref_901 = 0.412
-                qref_902 = 0.412
-                qref_903 = 0.412
+                for subid, tc in _tcs.items():
+                    tcs_scaled[subid] = tc
+                
+                for subid, tp in _tps.items():
+                    tps_scaled[subid] = tp
 
             # Replace transport concentration and peak factor placeholders with these computed values
-            rvh_txt = rvh_txt.replace("tc_875", str(tc_875))
-            rvh_txt = rvh_txt.replace("tc_876", str(tc_876))
-            rvh_txt = rvh_txt.replace("tc_877", str(tc_877))
-            rvh_txt = rvh_txt.replace("tc_878", str(tc_878))
-            rvh_txt = rvh_txt.replace("tc_880", str(tc_880))
-            rvh_txt = rvh_txt.replace("tc_881", str(tc_881))
-            rvh_txt = rvh_txt.replace("tc_882", str(tc_882))
-            rvh_txt = rvh_txt.replace("tc_883", str(tc_883))
-            rvh_txt = rvh_txt.replace("tc_900", str(tc_900))
-            rvh_txt = rvh_txt.replace("tc_901", str(tc_901))
-            rvh_txt = rvh_txt.replace("tc_902", str(tc_902))
-            rvh_txt = rvh_txt.replace("tc_903", str(tc_903))
 
-            rvh_txt = rvh_txt.replace("tp_875", str(tp_875))
-            rvh_txt = rvh_txt.replace("tp_876", str(tp_876))
-            rvh_txt = rvh_txt.replace("tp_877", str(tp_877))
-            rvh_txt = rvh_txt.replace("tp_878", str(tp_878))
-            rvh_txt = rvh_txt.replace("tp_880", str(tp_880))
-            rvh_txt = rvh_txt.replace("tp_881", str(tp_881))
-            rvh_txt = rvh_txt.replace("tp_882", str(tp_882))
-            rvh_txt = rvh_txt.replace("tp_883", str(tp_883))
-            rvh_txt = rvh_txt.replace("tp_900", str(tp_900))
-            rvh_txt = rvh_txt.replace("tp_901", str(tp_901))
-            rvh_txt = rvh_txt.replace("tp_902", str(tp_902))
-            rvh_txt = rvh_txt.replace("tp_903", str(tp_903))
+            for subid, tc_scaled in tcs_scaled.items():
+                rvh_txt = rvh_txt.replace(f"tc_{subid}", str(tc_scaled))
+
+            for subid, tp_scaled in tps_scaled.items():
+                rvh_txt = rvh_txt.replace(f"tp_{subid}", str(tp_scaled))
 
             rvh_txt = rvh_txt.replace("qref_875", str(qref_875))
             rvh_txt = rvh_txt.replace("qref_876", str(qref_876))
