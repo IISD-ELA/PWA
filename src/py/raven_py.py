@@ -42,8 +42,7 @@ class RavenFile:
     A class to handle file operations for Raven files.
     """
 
-    def __init__(self, filename, subbasin_deps_file_path=None, 
-                 calib_dir = "", extension="rvt"):
+    def __init__(self, filename, calib_dir = "", extension="rvt"):
         """
         Initialize the RavenFile object with a filename and calibration directory.
 
@@ -70,16 +69,6 @@ class RavenFile:
         # Set path to the template version of the file (e.g., "data/calibration/templates/MyModel.rvp.tpl")
         self.tpl_path = os.path.join(calib_dir, "templates", self.filename + ".tpl").replace('\\','/')
 
-        # Set dictionary of depression depths by subbasin 
-        if subbasin_deps_file_path:
-            gdf = gpd.read_file(subbasin_deps_file_path)
-            if not {"SubId", "Deps_Depth"}.issubset(gdf.columns):
-                raise ValueError("Shapefile must contain 'SubId' and 'Deps_Depth' columns.")
-            self.base_depths = dict(zip(gdf["SubId"], gdf["Deps_Depth"]))
-        else:
-            self.base_depths = {}
-
-
     def write(self, content):
         # Create if not exists, overwrite contents if exists
         with open(self.filepath, "w") as f:
@@ -91,7 +80,7 @@ class RavenFile:
             return f.read()
         
 
-    def rvp_update(self, _param_set, _dep_scale, _param_vector):
+    def rvp_update(self, _param_set, _dep_scale, _param_vector, _deps=None):
         """
         Update the RVP file with new parameters.
         """
@@ -122,11 +111,11 @@ class RavenFile:
             rvp_txt = rvp_txt.replace("seep_fact", str(seep_k))
             
             # Calculate and replace subbasin depths
-            for subid, base_depth in self.base_depths.items():
-                depth_value = dep_fact * base_depth
-                rvp_txt = rvp_txt.replace(f"s{subid}_dep", str(depth_value))
+            if _deps is not None:
+                for subid, base_depth in _deps.items():
+                    depth_value = dep_fact * base_depth
+                    rvp_txt = rvp_txt.replace(f"s{subid}_dep", str(depth_value))
 
-            # -1 index since bedslope parameter appended last in spotpy setup class
             bedslope_mult = _param_vector["bedslope_mult"]
 
             def scale_bedslope(match):
@@ -142,7 +131,7 @@ class RavenFile:
             
 
     def rvh_update(self, _param_set, _routing, _channel_scale, _param_vector, _aspect_ratios,
-                   _HRU_areas, _tps, _tcs):
+                   _HRU_areas, _tps, _tcs, _qrefs):
         """
         Update the RVH file with new parameters.
         """
@@ -175,41 +164,48 @@ class RavenFile:
                 for hru, area in _HRU_areas.items():
                     HRU_scaled_areas[hru] = basin_fact*area
 
+            #------------------------------------deprecate-------------------------------------------
             elif _param_set == "phydap_split":
                                 # Extract parameters from the parameter vector
-                basin1_fact = _param_vector[2]  # Basin area factor from the parameter vector
-                basin2_fact = _param_vector[3]  # Basin area factor from the parameter vector
+                # basin1_fact = _param_vector[2]  # Basin area factor from the parameter vector
+                # basin2_fact = _param_vector[3]  # Basin area factor from the parameter vector
 
-                # Calculate basin area values similarly by multiplying the basin_fact by constants
-                H567_area = basin1_fact * 53.9908
-                H568_area = basin2_fact * 17.0623
-                H569_area = basin1_fact * 5.1519
-                H570_area = basin2_fact * 7.7757
-                H571_area = basin2_fact * 21.9306
-                H572_area = basin2_fact * 23.7860
-                H573_area = basin2_fact * 17.4219
-                H574_area = basin2_fact * 15.0882
-                H575_area = basin2_fact * 2.1640
-                H576_area = basin2_fact * 2.6296
-                H577_area = basin2_fact * 2.0595
-                H578_area = basin2_fact * 88.3478
+                # # Calculate basin area values similarly by multiplying the basin_fact by constants
+                # H567_area = basin1_fact * 53.9908
+                # H568_area = basin2_fact * 17.0623
+                # H569_area = basin1_fact * 5.1519
+                # H570_area = basin2_fact * 7.7757
+                # H571_area = basin2_fact * 21.9306
+                # H572_area = basin2_fact * 23.7860
+                # H573_area = basin2_fact * 17.4219
+                # H574_area = basin2_fact * 15.0882
+                # H575_area = basin2_fact * 2.1640
+                # H576_area = basin2_fact * 2.6296
+                # H577_area = basin2_fact * 2.0595
+                # H578_area = basin2_fact * 88.3478
 
+                raise ValueError("PhyDAP split feature has been deprecated. Enter 'none' or 'no_split'.")
+            #----------------------------------------------------------------------------------------
+
+            #------------------------------------deprecate-------------------------------------------
             elif _param_set == "clrh_split":    
                 
-                # Calculate basin area values similarly by multiplying the basin_fact by constants
-                H567_area = _param_vector[2] * 53.9908
-                H568_area = _param_vector[3] * 17.0623
-                H569_area = _param_vector[4] * 5.1519
-                H570_area = _param_vector[5] * 7.7757
-                H571_area = _param_vector[6] * 21.9306
-                H572_area = _param_vector[7] * 23.7860
-                H573_area = _param_vector[8] * 17.4219
-                H574_area = _param_vector[9] * 15.0882
-                H575_area = _param_vector[10] * 2.1640
-                H576_area = _param_vector[11] * 2.6296
-                H577_area = _param_vector[12] * 2.0595
-                H578_area = _param_vector[13] * 88.3478
+            #     # Calculate basin area values similarly by multiplying the basin_fact by constants
+            #     H567_area = _param_vector[2] * 53.9908
+            #     H568_area = _param_vector[3] * 17.0623
+            #     H569_area = _param_vector[4] * 5.1519
+            #     H570_area = _param_vector[5] * 7.7757
+            #     H571_area = _param_vector[6] * 21.9306
+            #     H572_area = _param_vector[7] * 23.7860
+            #     H573_area = _param_vector[8] * 17.4219
+            #     H574_area = _param_vector[9] * 15.0882
+            #     H575_area = _param_vector[10] * 2.1640
+            #     H576_area = _param_vector[11] * 2.6296
+            #     H577_area = _param_vector[12] * 2.0595
+            #     H578_area = _param_vector[13] * 88.3478
 
+                raise ValueError("CLRH split feature has been deprecated. Enter 'none' or 'no_split'.")
+            #-----------------------------------------------------------------------------------------
             else:
                 raise ValueError("Unrecognized parameter set for .rvh update.")
 
@@ -220,6 +216,7 @@ class RavenFile:
 
             tcs_scaled = {}
             tps_scaled = {}
+            qrefs_scaled = {}
 
             if _routing:
                 t_peak_fact = _param_vector["t_peak_fact"]  # Transport peak factor from the parameter vector
@@ -232,24 +229,12 @@ class RavenFile:
                     tps_scaled[subid] = tp*t_peak_fact/_aspect_ratios[subid]
 
                 if _channel_scale:
-
                     qref_scale = _param_vector["qref_scale"]  # Qref scale factor from the parameter vector
-
                 else:
                     qref_scale = 1
                 
-                qref_875 = qref_scale * 1.08
-                qref_876 = qref_scale * 0.074
-                qref_877 = qref_scale * 0.361
-                qref_878 = qref_scale * 0.507
-                qref_880 = qref_scale * 0.095
-                qref_881 = qref_scale * 0.102
-                qref_882 = qref_scale * 0.268
-                qref_883 = qref_scale * 0.065
-                qref_900 = qref_scale * 0.412
-                qref_901 = qref_scale * 0.412
-                qref_902 = qref_scale * 0.412
-                qref_903 = qref_scale * 0.412
+                for subid, qref in _qrefs.items():
+                    qrefs_scaled[subid] = qref_scale*qref
                 
             else:
                 for subid, tc in _tcs.items():
@@ -266,24 +251,12 @@ class RavenFile:
             for subid, tp_scaled in tps_scaled.items():
                 rvh_txt = rvh_txt.replace(f"tp_{subid}", str(tp_scaled))
 
-            rvh_txt = rvh_txt.replace("qref_875", str(qref_875))
-            rvh_txt = rvh_txt.replace("qref_876", str(qref_876))
-            rvh_txt = rvh_txt.replace("qref_877", str(qref_877))
-            rvh_txt = rvh_txt.replace("qref_878", str(qref_878))
-            rvh_txt = rvh_txt.replace("qref_880", str(qref_880))
-            rvh_txt = rvh_txt.replace("qref_881", str(qref_881))
-            rvh_txt = rvh_txt.replace("qref_882", str(qref_882))
-            rvh_txt = rvh_txt.replace("qref_883", str(qref_883))
-            rvh_txt = rvh_txt.replace("qref_900", str(qref_900))
-            rvh_txt = rvh_txt.replace("qref_901", str(qref_901))
-            rvh_txt = rvh_txt.replace("qref_902", str(qref_902))
-            rvh_txt = rvh_txt.replace("qref_903", str(qref_903))
-            
+            for subid, qref_scaled in qrefs_scaled.items():
+                rvh_txt = rvh_txt.replace(f"qref_{subid}", str(qref_scaled))
 
             # Finally, write the updated text with replaced parameters to the .rvh file
             self.write(rvh_txt)
         
-
 
 
 def read_rv_diag(rv_path: str, diag_names: list[str] = None) -> dict:

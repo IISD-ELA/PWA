@@ -7,6 +7,7 @@ import shutil
 import hashlib
 import time
 from mpi4py import MPI
+import geopandas as gpd
 
 sys.path.append(os.path.dirname(os.path.realpath(__file__)))
 import raven_py as rv
@@ -64,9 +65,19 @@ class spot_setup_rvn(object):
         self.dep_scale = dep_scaling
         self.runoff_scale = runoff_scaling
         self.channel_scale = channel_scaling
+        
+        #-------------------------load subbasin ID for outlet-------------------------
+        wsc_outlet_subid_path = calib_dir + f"\\input\\{self.model_name}_WSC_outlet.txt"
 
+        with open(wsc_outlet_subid_path, "r") as f:
+            content = f.read()
+            outlet_id = int(content)
+        self.outlet = outlet_id
+        print("Outlet subid from WSC is: ", self.outlet)
+
+        #--------------------------load aspect ratios into dict------------------------
         # Load aspect ratios from input CSV
-        aspect_ratio_path = calib_dir + r"\input\aspect_ratios.csv"
+        aspect_ratio_path = calib_dir + f"\\input\\aspect_ratios.csv"
         print("Aspect ratio path is: ", aspect_ratio_path)
         aspect_ratios_df = pd.read_csv(aspect_ratio_path)
     
@@ -74,8 +85,9 @@ class spot_setup_rvn(object):
         aspect_ratios = aspect_ratios_df.set_index("SubId")["Aspect_Ratio"].to_dict()
         self.aspect_ratios = aspect_ratios 
 
+        #------------------------load original HRU areas into dict----------------------
         # Load original HRU areas from input CSV
-        HRU_areas_path = calib_dir + f"\input\{self.model_name}_HRU_areas.csv"
+        HRU_areas_path = calib_dir + f"\\input\\{self.model_name}_HRU_areas.csv"
         print("HRU areas path is: ", HRU_areas_path)
         HRU_areas_df = pd.read_csv(HRU_areas_path)
 
@@ -83,8 +95,9 @@ class spot_setup_rvn(object):
         HRU_areas = HRU_areas_df.set_index("HRU")["AREA"].to_dict()
         self.HRU_areas = HRU_areas
 
+        #-----------------------load original tp and tc into dict-----------------------
         # Load original tc and tp values by subbasin from input CSV
-        tp_tc_path = calib_dir + f"\input\{self.model_name}_HRU_areas.csv"
+        tp_tc_path = calib_dir + f"\\input\\{self.model_name}_tp_tc.csv"
         print("TP TC path is: ", tp_tc_path)
         tp_tc_df = pd.read_csv(tp_tc_path)
 
@@ -95,6 +108,21 @@ class spot_setup_rvn(object):
         # Convert to dictionary {SubId: tc}
         tcs = tp_tc_df.set_index("SubId")["tc"].to_dict()
         self.tcs = tcs  
+        
+        #------------------------load original depths and qref into dict---------------
+        # Load original depression depths by subbasin from input depr deps .shp file
+        deps_path = calib_dir + f"\\input\\CLRH_basins_depression_depths.shp"
+        print("Deps shapefile is: ", deps_path)
+        deps_gdf = gpd.read_file(deps_path)
+
+        # Convert to dictionary {SubId: Deps_Depth}
+        deps = dict(zip(deps_gdf["SubId"], deps_gdf["Deps_Depth"]))
+        self.deps = deps
+
+        qrefs = dict(zip(deps_gdf["SubId"], deps_gdf["Q_Mean"]))
+        self.qrefs = qrefs
+
+        #--------------------------------------------------------------------------------
 
         # Create a unique directory for each calibration core
         if mpi_cores < 2:
@@ -152,30 +180,33 @@ class spot_setup_rvn(object):
         self.param_distributions.append(sp.parameter.Uniform("seep_k", low=0.00, high=seep_max))
 
         if self.runoff_scale:
-
+            #---------------------------------deprecate------------------------------------------
             if split_areas.lower() == "clrh":
-                self.param_distributions.append([
-                                sp.parameter.Uniform("basin_fact_567", low=0.80, high=1.20),
-                                sp.parameter.Uniform("basin_fact_568", low=0.80, high=1.20),
-                                sp.parameter.Uniform("basin_fact_569", low=0.80, high=1.20),
-                                sp.parameter.Uniform("basin_fact_570", low=0.80, high=1.20),
-                                sp.parameter.Uniform("basin_fact_571", low=0.80, high=1.20),
-                                sp.parameter.Uniform("basin_fact_572", low=0.80, high=1.20),
-                                sp.parameter.Uniform("basin_fact_573", low=0.80, high=1.20),
-                                sp.parameter.Uniform("basin_fact_574", low=0.80, high=1.20),
-                                sp.parameter.Uniform("basin_fact_575", low=0.80, high=1.20),
-                                sp.parameter.Uniform("basin_fact_576", low=0.80, high=1.20),
-                                sp.parameter.Uniform("basin_fact_577", low=0.80, high=1.20),
-                                sp.parameter.Uniform("basin_fact_578", low=0.80, high=1.20)
-                            ])
-                self.param_set = "clrh_split"
-
+                # self.param_distributions.append([
+                #                 sp.parameter.Uniform("basin_fact_567", low=0.80, high=1.20),
+                #                 sp.parameter.Uniform("basin_fact_568", low=0.80, high=1.20),
+                #                 sp.parameter.Uniform("basin_fact_569", low=0.80, high=1.20),
+                #                 sp.parameter.Uniform("basin_fact_570", low=0.80, high=1.20),
+                #                 sp.parameter.Uniform("basin_fact_571", low=0.80, high=1.20),
+                #                 sp.parameter.Uniform("basin_fact_572", low=0.80, high=1.20),
+                #                 sp.parameter.Uniform("basin_fact_573", low=0.80, high=1.20),
+                #                 sp.parameter.Uniform("basin_fact_574", low=0.80, high=1.20),
+                #                 sp.parameter.Uniform("basin_fact_575", low=0.80, high=1.20),
+                #                 sp.parameter.Uniform("basin_fact_576", low=0.80, high=1.20),
+                #                 sp.parameter.Uniform("basin_fact_577", low=0.80, high=1.20),
+                #                 sp.parameter.Uniform("basin_fact_578", low=0.80, high=1.20)
+                #             ])
+                # self.param_set = "clrh_split"
+                raise ValueError("CLRH split feature has been deprecated. Enter 'none' or 'no_split'.")
+            #---------------------------------deprecate------------------------------------------
             elif split_areas.lower() == "phydap":
-                self.param_distributions.append(sp.parameter.Uniform("basin1_fact", low=0.80, high=1.20))
-                self.param_distributions.append(sp.parameter.Uniform("basin2_fact", low=0.80, high=1.20))
+                # self.param_distributions.append(sp.parameter.Uniform("basin1_fact", low=0.80, high=1.20))
+                # self.param_distributions.append(sp.parameter.Uniform("basin2_fact", low=0.80, high=1.20))
 
-                self.param_set = "phydap_split"
-            
+                # self.param_set = "phydap_split"
+                raise ValueError("PhyDAP split feature has been deprecated. Enter 'none' or 'no_split'.")
+            #-------------------------------------------------------------------------------------
+
             elif split_areas.lower() == "none" or split_areas.lower() == "no_split":
                 self.param_distributions.append(sp.parameter.Uniform("basin_fact", low=0.80, high=1.20))
                 self.param_set = "no_split"
@@ -233,31 +264,30 @@ class spot_setup_rvn(object):
         else:
             sim_dir = self.working_dir
 
-        # Path to the depression depths shape file (from dep deps notebook outputs)
-        deps_file_path = sim_dir + r"\input\CLRH_basins_depression_depths.shp"
-
         for ext in exts:
             if ext == "rvp":
                 # Create a RavenFile object representing the .rvp file for the model
-                rvp = rv.RavenFile(f"{self.model_name}.rvp", subbasin_deps_file_path=deps_file_path,
+                rvp = rv.RavenFile(f"{self.model_name}.rvp", 
                                    calib_dir=sim_dir, extension="rvp")
 
                 # Create a RavenFile object representing the channel properties file
-                rvp_channel_props = rv.RavenFile("channel_properties_T_ERA5.rvp", subbasin_deps_file_path=deps_file_path
+                rvp_channel_props = rv.RavenFile("channel_properties_T_ERA5.rvp", 
                                                  calib_dir=sim_dir, extension = "rvp")
 
                 # Update the .rvp file with the parameter values from param_vector
-                rvp.rvp_update(self.param_set, self.dep_scale, param_vector)
+                rvp.rvp_update(self.param_set, self.dep_scale, param_vector, _deps=self.deps)
                 
                 # Update the channel properties file with the parameter values from param_vector
                 rvp_channel_props.rvp_update(self.param_set, self.dep_scale, param_vector)
             elif ext == "rvh":
                 # Create a RavenFile object representing the .rvh file for the model
-                rvh = rv.RavenFile(f"{self.model_name}.rvh", subbasin_deps_file_path=deps_file_path,
+                rvh = rv.RavenFile(f"{self.model_name}.rvh", 
                                    calib_dir=sim_dir,  extension="rvh")
+                
                 # Update the .rvh file with the parameter values from param_vector
                 rvh.rvh_update(self.param_set, self.routing, self.channel_scale, 
-                               param_vector, self.aspect_ratios, self.HRU_areas, self.tps, self.tcs)    
+                               param_vector, self.aspect_ratios, self.HRU_areas, self.tps, 
+                               self.tcs, self.qrefs)    
             else:
                 # Raise an error if the file extension is not supported
                 raise ValueError(f"Unsupported file extension: {ext}")
@@ -266,7 +296,7 @@ class spot_setup_rvn(object):
         rv.run_raven(self.model_name, sim_dir)
 
         # subbasin_id = input("Enter the subbasin ID for output reading: ")
-        subbasin_id = "sub875"
+        subbasin_id = f"sub{self.outlet}" 
 
         sim_hydrograph = rv.RavenHydrograph((sim_dir))
 
