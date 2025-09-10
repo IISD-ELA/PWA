@@ -65,6 +65,16 @@ class spot_setup_rvn(object):
         self.runoff_scale = runoff_scaling
         self.channel_scale = channel_scaling
 
+        # Load aspect ratios from input CSV
+        print("calib_dir: ", calib_dir)
+        aspect_ratio_path = calib_dir + r"\input\aspect_ratios.csv"
+        print("Aspect ratio path is: ", aspect_ratio_path)
+        aspect_ratios_df = pd.read_csv(aspect_ratio_path)
+    
+        # Convert to dictionary {subid: aspect_ratio}
+        aspect_ratios = aspect_ratios_df.set_index("SubId")["Aspect_Ratio"].to_dict()
+        self.aspect_ratios = aspect_ratios 
+
         # Create a unique directory for each calibration core
         if mpi_cores < 2:
             self.cores = 0
@@ -219,7 +229,8 @@ class spot_setup_rvn(object):
                 # Create a RavenFile object representing the .rvh file for the model
                 rvh = rv.RavenFile(f"{self.model_name}.rvh", calib_dir=sim_dir,  extension = "rvh")
                 # Update the .rvh file with the parameter values from param_vector
-                rvh.rvh_update(self.param_set, self.routing, self.channel_scale, param_vector)    
+                rvh.rvh_update(self.param_set, self.routing, self.channel_scale, 
+                               param_vector, self.aspect_ratios)    
             else:
                 # Raise an error if the file extension is not supported
                 raise ValueError(f"Unsupported file extension: {ext}")
