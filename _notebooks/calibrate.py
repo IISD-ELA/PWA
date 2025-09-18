@@ -16,16 +16,6 @@ import numpy as np
 
 dbname_str = sys.argv[1] + datetime.now().strftime('%Y%m%d_%H')
 
-_original_programm_depth = alg.rope.programm_depth
-
-# the programm_depth in rope.py doesn't properly parse parameters, so this is needed 
-def safe_programm_depth(self, pars, repetitions_following_runs):
-    if isinstance(pars, tuple) and len(pars) == 2:
-        pars = pars[1]  # take just the parameter values
-    return _original_programm_depth(self, pars, repetitions_following_runs)
-
-alg.rope.programm_depth = safe_programm_depth
-
 # Ensure the project directory is in the Python path
 prj_path = os.path.abspath(os.path.join(os.getcwd(), '..').replace('\\','/')) + "/PWA"
 if prj_path not in sys.path:
@@ -52,25 +42,29 @@ calibrator = spot_setup_rvn(raven_name, DATA_CAL_NEW, obj_fn= "nse_pbias", split
 
 print('db name is ' + dbname_str + '.csv')
 
-def safe_get_best_runs(self, likes, pars, runs=2, percentage=0.1):
-    """Safe version of get_best_runs that avoids numpy array comparisons
-       and guarantees a 2D float array for parameters."""
-    # Pair likes and pars, sort by likes (objective values)
-    combined = sorted(zip(likes, pars), key=lambda x: float(x[0]))
-    best = combined[:runs]
 
-    best_likes = [float(l) for l, _ in best]
+def safe_get_best_runs(self, likes, pars, runs, percentage):
+        """
+        Returns the best xx% of the runs"""
+        try:
+            if type(pars[0])==np.ndarray:
+                # Convert each numpy array parameter set to a list for sorting
+                # (can't sort by arrays, but can sort by lists)
+                pars = [list(par) for par in pars]
+            
+            result = [
+                        new_pars
+                        for (new_likes, new_pars) in sorted(zip(likes, pars))[
+                            int(len(likes) * (1 - percentage)):]
+                    ]
 
-    # Force each parameter set into a flat 1D float array
-    cleaned = [np.array(p, dtype=float).ravel() for _, p in best]
-
-    # Stack into shape (runs, n_parameters)
-    best_pars = np.vstack(cleaned)
-
-    # Debug: confirm shape
-    print("safe_get_best_runs returning:", best_pars.shape)
-
-    return best_likes, best_pars
+            print("safe_get_best_runs executed successfully.")
+            print("parameters for best runs:", result)
+            return result
+        
+        except Exception as e:
+            print("Error details (get_best_runs):", e)
+            raise
 
 
 alg.rope.get_best_runs = safe_get_best_runs
