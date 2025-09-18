@@ -47,7 +47,7 @@ print(DATA_CAL_NEW)
 # Set up the calibration 
 calibrator = spot_setup_rvn(raven_name, DATA_CAL_NEW, obj_fn= "nse_pbias", split_areas = "none", \
                             spring_eval= True, low_seep=True, routing=True, dep_scaling=True, runoff_scaling=True, 
-                            mpi_cores=2)
+                            mpi_cores=20)
 
 
 print('db name is ' + dbname_str + '.csv')
@@ -81,5 +81,5 @@ sampler= alg.rope(calibrator, # must use this or ROPE flattens the parameter spa
                 dbformat='csv',
                 save_sim=True)
 
-rep = 10
+rep = 5000
 sampler.sample(rep)
