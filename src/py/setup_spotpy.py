@@ -271,7 +271,7 @@ class spot_setup_rvn(object):
                                    calib_dir=sim_dir, extension="rvp")
 
                 # Create a RavenFile object representing the channel properties file
-                rvp_channel_props = rv.RavenFile("channel_properties_T_ERA5.rvp", 
+                rvp_channel_props = rv.RavenFile("channel_properties.rvp", 
                                                  calib_dir=sim_dir, extension = "rvp")
 
                 # Update the .rvp file with the parameter values from param_vector
