@@ -6,6 +6,7 @@ import re
 import geopandas as gpd
 
 
+
 def run_raven(raven_model, data_cal="data/calibration"):
     """
     Run the Raven model with the specified model file and calibration data directory.
@@ -375,7 +376,7 @@ class RavenHydrograph:
         self.eval = self.data.loc[self.data["date_time"].dt.year.between(start_yr, end_yr)]
 
         if spring_only:
-            self.eval = self.eval.loc[self.eval["date_time"].dt.month.lt(7)]
+            self.eval = self.eval.loc[self.eval["date_time"].dt.month.lt(8)]
 
         # Look through columns and find one that contains the subbasin id and is not observed data
         for col in self.eval.columns:
@@ -401,7 +402,7 @@ class RavenHydrograph:
         self.eval = self.data.loc[self.data["date_time"].dt.year.between(start_yr, end_yr)]
 
         if spring_only:
-            self.eval = self.eval.loc[self.eval["date_time"].dt.month.lt(7)]
+            self.eval = self.eval.loc[self.eval["date_time"].dt.month.lt(8)]
         
         noon_index = self.eval.index[self.eval["date_time"].dt.hour == 12]
         if len(noon_index) == 0:
@@ -420,3 +421,25 @@ class RavenHydrograph:
                 
                 break
         return observed
+    
+
+
+def plot_timeseries(_sim, _eval, start_idx=None, end_idx=None):
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    # Use full range if not specified
+    if start_idx is None:
+        start_idx = 0
+    if end_idx is None:
+        end_idx = len(_sim)
+
+    plt.figure(figsize=(12, 6))
+    plt.plot(np.arange(start_idx, end_idx), _sim.iloc[start_idx:end_idx], label='Simulation')
+    plt.plot(np.arange(start_idx, end_idx), _eval.iloc[start_idx:end_idx], label='Observation')
+    plt.xlabel('Time Index')
+    plt.ylabel('Flow [m3/s]')
+    plt.title('Simulated vs Observed Hydrograph')
+    plt.legend()
+    plt.tight_layout()
+    plt.show()

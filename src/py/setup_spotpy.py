@@ -168,16 +168,16 @@ class spot_setup_rvn(object):
         self.hydrograph = rv.RavenHydrograph(calib_dir)
 
         if low_seep: 
-            seep_max = 0.02
+            seep_max = 0.03
         else:
             seep_max = 0.10
 
         self.param_distributions = []
 
         if self.dep_scale:
-            self.param_distributions.append(sp.parameter.Uniform("dep_fact", low=0.60, high=1.00))
+            self.param_distributions.append(sp.parameter.Uniform("dep_fact", low=0.60, high=1.20))
         
-        self.param_distributions.append(sp.parameter.Uniform("seep_k", low=0.00, high=seep_max))
+        self.param_distributions.append(sp.parameter.Uniform("seep_k", low=0.005, high=seep_max, optguess=0.03))
 
         if self.runoff_scale:
             #---------------------------------deprecate------------------------------------------
@@ -208,7 +208,7 @@ class spot_setup_rvn(object):
             #-------------------------------------------------------------------------------------
 
             elif split_areas.lower() == "none" or split_areas.lower() == "no_split":
-                self.param_distributions.append(sp.parameter.Uniform("basin_fact", low=0.80, high=1.20))
+                self.param_distributions.append(sp.parameter.Uniform("basin_fact", low=0.90, high=1.20, optguess=1.10))
                 self.param_set = "no_split"
             
             else:
@@ -218,12 +218,12 @@ class spot_setup_rvn(object):
             self.param_set = "no_runoff_scale"
 
         if routing:
-            self.param_distributions.append(sp.parameter.Uniform("tc_tp_fact", low=1.4, high=2.2))
-            self.param_distributions.append(sp.parameter.Uniform("t_peak_fact", low=0.2, high=0.8))
-            self.param_distributions.append(sp.parameter.Uniform("qref_scale", low=0.2, high=1.0))
+            self.param_distributions.append(sp.parameter.Uniform("tc_tp_fact", low=1.4, high=3.0))
+            self.param_distributions.append(sp.parameter.Uniform("t_peak_fact", low=0.4, high=1.2))
+            self.param_distributions.append(sp.parameter.Uniform("qref_scale", low=0.5, high=2.0))
         
         # Add bedslope scale factor/multiplier parameter (applies to all subbasins)
-        self.param_distributions.append(sp.parameter.Uniform("bedslope_mult", low=1.5, high=5.0))
+        self.param_distributions.append(sp.parameter.Uniform("bedslope_mult", low=0.8, high=5.0, optguess=1.5))
         
         self.obj_fn = obj_fn
         self.spring_eval = spring_eval
@@ -266,6 +266,9 @@ class spot_setup_rvn(object):
 
         for ext in exts:
             if ext == "rvp":
+
+                if self.deps is None:
+                    raise ValueError("Depression depths dictionary is not loaded. Cannot perform depth scaling.")
                 # Create a RavenFile object representing the .rvp file for the model
                 rvp = rv.RavenFile(f"{self.model_name}.rvp", 
                                    calib_dir=sim_dir, extension="rvp")
@@ -319,6 +322,7 @@ class spot_setup_rvn(object):
         float: Adjusted Nash-Sutcliffe Efficiency (NSE) as the objective function value.
                Lower values indicate better model fit (0 is perfect fit).
         """
+        
         print("Simulation:", sim, flush=True)
         print("Evaluation:", obs, flush=True)
         print("Simulation type:", type(sim), flush=True)
@@ -361,8 +365,13 @@ class spot_setup_rvn(object):
         
         elif self.obj_fn == "nse_pbias":
             nse = pd.Series(1- np.sum((valid_sim - valid_eval) ** 2) / np.sum((valid_eval - np.mean(valid_eval)) ** 2))
-            pbias = pd.Series(np.sum(valid_sim - valid_eval) / np.sum(valid_eval))
             
+            # Need to evaluate pbias on the full year, not just spring
+            obs_full = self.hydrograph.read_obs(start_yr=2003, end_yr=2021, spring_only = False, refresh=True).reset_index(drop=True)
+            sim_full = self.hydrograph.read_sim(subbasin_id, start_yr=2003, end_yr=2021, spring_only = False, refresh=True).reset_index(drop=True)
+
+            pbias = pd.Series(np.sum(sim_full - obs_full) / np.sum(obs_full))
+
             weighted_obj = 2*(nse - 1) - np.sqrt(pbias**2)
 
             return weighted_obj
