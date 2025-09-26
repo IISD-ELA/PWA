@@ -165,7 +165,7 @@ class spot_setup_rvn(object):
 
         print("Directory set-up complete. Core paths for SpotPy calibration:", self.core_paths, flush=True)
         
-        self.hydrograph = rv.RavenHydrograph(calib_dir)
+        # self.hydrograph = rv.RavenHydrograph(calib_dir)
 
         if low_seep: 
             seep_max = 0.03
@@ -177,7 +177,7 @@ class spot_setup_rvn(object):
         self.param_distributions = []
 
         if self.dep_scale:
-            self.param_distributions.append(sp.parameter.Uniform("dep_fact", low=0.10, high=1.00))
+            self.param_distributions.append(sp.parameter.Uniform("dep_fact", low=0.10, high=1.00, optguess = 0.5))
 
         self.param_distributions.append(sp.parameter.Uniform("seep_k", low=0.005, high=seep_max, optguess=seep_opt))
 
@@ -199,6 +199,7 @@ class spot_setup_rvn(object):
                 #                 sp.parameter.Uniform("basin_fact_578", low=0.80, high=1.20)
                 #             ])
                 # self.param_set = "clrh_split"
+                print("CLRH split feature has been deprecated. Enter 'none' or 'no_split'.", flush=True)
                 raise ValueError("CLRH split feature has been deprecated. Enter 'none' or 'no_split'.")
             #---------------------------------deprecate------------------------------------------
             elif split_areas.lower() == "phydap":
@@ -206,6 +207,7 @@ class spot_setup_rvn(object):
                 # self.param_distributions.append(sp.parameter.Uniform("basin2_fact", low=0.80, high=1.20))
 
                 # self.param_set = "phydap_split"
+                print("PhyDAP split feature has been deprecated. Enter 'none' or 'no_split'.", flush=True)
                 raise ValueError("PhyDAP split feature has been deprecated. Enter 'none' or 'no_split'.")
             #-------------------------------------------------------------------------------------
 
@@ -214,6 +216,7 @@ class spot_setup_rvn(object):
                 self.param_set = "no_split"
             
             else:
+                print(f"Unsupported split_areas value: {split_areas}. Use 'clrh', 'phydap', or 'none'.", flush=True)
                 raise ValueError(f"Unsupported split_areas value: {split_areas}. Use 'clrh', 'phydap', or 'none'.")
             
         else:
@@ -254,7 +257,20 @@ class spot_setup_rvn(object):
         """
         # WILL NEED TO CONSTRUCT RAVEN FILES HERE
         # Loop over the list of Raven file extensions that need to be updated with parameter
-        
+
+        def round_sig(array, sig=8):
+            new_array = []
+            for x in array:
+                if x != 0:
+                    new_array.append(round(x, sig - int(np.floor(np.log10(abs(x)))) - 1))
+                else:
+                    new_array.append(0)
+            return new_array
+
+        param_vector = pd.Series(round_sig(param_vector.random, sig=8), index=param_vector.name)
+
+        print("Rounded parameter vector:", param_vector, flush=True)
+
         if self.cores > 1:
             self.rank += 1
             sim_dir = self.working_dir
@@ -270,6 +286,7 @@ class spot_setup_rvn(object):
             if ext == "rvp":
 
                 if self.deps is None:
+                    print("Depression depths dictionary is not loaded. Cannot perform depth scaling.", flush=True)
                     raise ValueError("Depression depths dictionary is not loaded. Cannot perform depth scaling.")
                 # Create a RavenFile object representing the .rvp file for the model
                 rvp = rv.RavenFile(f"{self.model_name}.rvp", 
@@ -283,7 +300,7 @@ class spot_setup_rvn(object):
                 rvp.rvp_update(self.param_set, self.dep_scale, param_vector, _deps=self.deps)
                 
                 # Update the channel properties file with the parameter values from param_vector
-                rvp_channel_props.rvp_update(self.param_set, self.dep_scale, param_vector)
+                rvp_channel_props.rvp_update(self.param_set, self.dep_scale, param_vector, _deps=self.deps)
             elif ext == "rvh":
                 # Create a RavenFile object representing the .rvh file for the model
                 rvh = rv.RavenFile(f"{self.model_name}.rvh", 
@@ -310,7 +327,7 @@ class spot_setup_rvn(object):
         # sim_2003 = sim.loc[sim["date"].year >= 2003]
 
         # read output
-        obs = self.hydrograph.read_obs(start_yr=2003, end_yr=2021, spring_only = self.spring_eval, refresh=True).reset_index(drop=True)
+        obs = sim_hydrograph.read_obs(start_yr=2003, end_yr=2021, spring_only = self.spring_eval, refresh=True).reset_index(drop=True)
 
         """
         Calculate the objective function value to assess model performance.
@@ -331,9 +348,11 @@ class spot_setup_rvn(object):
         print("Evaluation type:", type(obs), flush=True)
 
         if sim is None or obs is None:
+            print("Simulation or evaluation data is None.", flush=True)
             raise ValueError("Simulation and evaluation data must be provided.")
 
         if len(sim) != len(obs):
+            print("Simulation length:", len(sim), "different than observation length", len(obs), flush=True)
             raise ValueError("Simulation and evaluation data must have the same length.")
 
         non_null = obs.notnull()
@@ -341,6 +360,7 @@ class spot_setup_rvn(object):
         valid_sim = sim[non_null]
         valid_eval = obs[non_null]
         if valid_sim.empty or valid_eval.empty:
+            print("No valid non-null data points found in simulation or evaluation.", flush=True)
             raise ValueError("Simulation and evaluation data must contain non-null values.")
 
         # Calculate NSE
@@ -369,16 +389,22 @@ class spot_setup_rvn(object):
             nse = pd.Series(1- np.sum((valid_sim - valid_eval) ** 2) / np.sum((valid_eval - np.mean(valid_eval)) ** 2))
             
             # Need to evaluate pbias on the full year, not just spring
-            obs_full = self.hydrograph.read_obs(start_yr=2003, end_yr=2021, spring_only = False, refresh=True).reset_index(drop=True)
-            sim_full = self.hydrograph.read_sim(subbasin_id, start_yr=2003, end_yr=2021, spring_only = False, refresh=True).reset_index(drop=True)
+            obs_full = sim_hydrograph.read_obs(start_yr=2003, end_yr=2021, spring_only = False, refresh=True).reset_index(drop=True)
+            sim_full = sim_hydrograph.read_sim(subbasin_id, start_yr=2003, end_yr=2021, spring_only = False, refresh=True).reset_index(drop=True)
 
             pbias = pd.Series(np.sum(sim_full - obs_full) / np.sum(obs_full))
 
             weighted_obj = 2*(nse - 1) - np.sqrt(pbias**2)
 
+            print("Nash-Sutcliffe Efficiency (NSE):", nse)
+            print(f'Percent Bias (PBIAS): {pbias} %')
+            print("Weighted Objective (2*(NSE-1) - sqrt(PBIAS^2)):", weighted_obj)
+            print("parameters:", param_vector)
+
             return weighted_obj
 
         else:
+            print(f"Unsupported objective function: {self.obj_fn}. Use 'kge_adj' or 'nse'.", flush=True)
             raise ValueError(f"Unsupported objective function: {self.obj_fn}. Use 'kge_adj' or 'nse'.")
 
 

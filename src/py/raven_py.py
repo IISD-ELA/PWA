@@ -98,15 +98,15 @@ class RavenFile:
             else:
                 if _dep_scale:
                     dep_fact = _param_vector["dep_fact"]  # Generic depth factor from the parameter vector
-                    if dep_fact > 1.2 or dep_fact < 0.5:
-                        raise ValueError("Depth factor must be between 0.5 and 1.2.")
+                    # if dep_fact > 1.2 or dep_fact < 0.5:
+                    #     raise ValueError("Depth factor must be between 0.5 and 1.2.")
                 
                 else:
                     dep_fact = 1
 
             seep_k = _param_vector["seep_k"]  # Seepage factor from the parameter vector
-            if seep_k > 0.1 or seep_k < 0.0:
-                raise ValueError("Seepage factor must be between 0.0 and 0.1.")
+            # if seep_k > 0.1 or seep_k < 0.0:
+            #     raise ValueError("Seepage factor must be between 0.0 and 0.1.")
 
             # Replace the placeholder string with the actual parameter value
             rvp_txt = rvp_txt.replace("seep_fact", str(seep_k))
@@ -145,8 +145,8 @@ class RavenFile:
         
             # Replace the seepage factor placeholder with the current seep_k value
             seep_k = _param_vector["seep_k"]  # Seepage factor from the parameter vector
-            if seep_k > 0.1 or seep_k < 0.0:
-                raise ValueError("Seepage factor must be between 0.0 and 0.1.")
+            # if seep_k > 0.1 or seep_k < 0.0:
+            #     raise ValueError("Seepage factor must be between 0.0 and 0.1.")
             rvh_txt = rvh_txt.replace("seep_fact", str(seep_k))
             
             HRU_scaled_areas = {}
@@ -338,6 +338,7 @@ class RavenHydrograph:
         pd.DataFrame: DataFrame containing hydrograph data (time series of discharge etc.).
         Returns an empty DataFrame if no hydrograph CSV file is found.
         """
+        print(f'looking for hydrograph file in {self.rv_path}')
         output_dir = os.path.join(self.rv_path, "output").replace('\\','/')
         output_csv = None
 
@@ -346,6 +347,9 @@ class RavenHydrograph:
             if file.lower().endswith(".csv") and "hydrographs" in file.lower():
                 output_csv = os.path.join(output_dir, file).replace('\\','/')
                 break
+        
+        if output_csv is None:
+            print(f"No hydrograph CSV file found in output directory {output_dir}.")
         
         # If the hydrograph CSV was found, load into a DataFrame
         if output_csv and os.path.isfile(output_csv):
@@ -376,7 +380,7 @@ class RavenHydrograph:
         self.eval = self.data.loc[self.data["date_time"].dt.year.between(start_yr, end_yr)]
 
         if spring_only:
-            self.eval = self.eval.loc[self.eval["date_time"].dt.month.lt(8)]
+            self.eval = self.eval.loc[self.eval["date_time"].dt.month.lt(6)]
 
         # Look through columns and find one that contains the subbasin id and is not observed data
         for col in self.eval.columns:
@@ -402,8 +406,9 @@ class RavenHydrograph:
         self.eval = self.data.loc[self.data["date_time"].dt.year.between(start_yr, end_yr)]
 
         if spring_only:
-            self.eval = self.eval.loc[self.eval["date_time"].dt.month.lt(8)]
+            self.eval = self.eval.loc[self.eval["date_time"].dt.month.lt(6)]
         
+        # Using only noon values for evaluating the daily interval for interpolation
         noon_index = self.eval.index[self.eval["date_time"].dt.hour == 12]
         if len(noon_index) == 0:
             print("No noon data found in the hydrograph. Trying 1pm.")
@@ -422,9 +427,41 @@ class RavenHydrograph:
                 break
         return observed
     
+    def read_runoff(self, start_yr, end_yr, spring_only = True, refresh=False) -> pd.DataFrame:
+        """
+        Extract total runoff data from the hydrograph DataFrame.
 
+        Returns:
+        ----------
+        runoff (pd.Series): Time series of total runoff values.
+        """
+        if refresh:
+            self.data = self.read_hydrograph()
+            # self.data = self.data.loc[self.data["date"].dt.year.between(start_yr, end_yr)]
 
-def plot_timeseries(_sim, _eval, start_idx=None, end_idx=None):
+        self.eval = self.data.loc[self.data["date_time"].dt.year.between(start_yr, end_yr)]
+
+        if spring_only:
+            self.eval = self.eval.loc[self.eval["date_time"].dt.month.lt(8)]
+        
+        # Look for any column with 'runoff' in its name
+        for col in self.eval.columns:
+            if "precip" in col.lower():
+                # removed values in this column that are not at noon
+                runoff = self.eval[col]
+                break
+        return runoff
+    
+def index_to_date(index, start_date="2003-01-01 00:00:00", freq="H"):
+    """
+    Convert a zero-based index to a datetime object based on a given start date and frequency.
+    """
+    start = pd.to_datetime(start_date)
+    print(f"Warning: Converting index to date starting from {start_date} with frequency '{freq}'")
+
+    return start + pd.to_timedelta(index, unit=freq[0].lower())
+
+def plot_timeseries(_sim, _eval, _runoff=None, start_idx=None, end_idx=None):
     import matplotlib.pyplot as plt
     import numpy as np
 
@@ -434,12 +471,23 @@ def plot_timeseries(_sim, _eval, start_idx=None, end_idx=None):
     if end_idx is None:
         end_idx = len(_sim)
 
+    time_index = index_to_date(np.arange(start_idx, end_idx))
+
     plt.figure(figsize=(12, 6))
-    plt.plot(np.arange(start_idx, end_idx), _sim.iloc[start_idx:end_idx], label='Simulation')
-    plt.plot(np.arange(start_idx, end_idx), _eval.iloc[start_idx:end_idx], label='Observation')
-    plt.xlabel('Time Index')
-    plt.ylabel('Flow [m3/s]')
+    plt.plot(time_index, _sim.iloc[start_idx:end_idx], label='Simulation')
+    plt.plot(time_index, _eval.iloc[start_idx:end_idx], label='Observation')
+    ax1 = plt.gca()
     plt.title('Simulated vs Observed Hydrograph')
+
+    if _runoff is not None:
+        ax2 = ax1.twinx()
+        ax2.invert_yaxis()
+        ax2.set_ylabel('Runoff [mm/day]', color = 'tab:red')
+        ax2.plot(time_index, _runoff.iloc[start_idx:end_idx], color = 'tab:red', label='Runoff (inverted)')
+        plt.title('Simulated vs Observed Hydrograph (with Runoff)')
+    ax1.set_xlabel('Time Index')
+    ax1.set_ylabel('Flow [m3/s]')
+    
     plt.legend()
     plt.tight_layout()
     plt.show()
