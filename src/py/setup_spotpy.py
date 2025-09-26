@@ -255,8 +255,6 @@ class spot_setup_rvn(object):
         pd.Series: 
             Simulated discharge time series for a specific subbasin (default subbasin_id "sub875").
         """
-        # WILL NEED TO CONSTRUCT RAVEN FILES HERE
-        # Loop over the list of Raven file extensions that need to be updated with parameter
 
         def round_sig(array, sig=8):
             new_array = []
@@ -267,9 +265,8 @@ class spot_setup_rvn(object):
                     new_array.append(0)
             return new_array
 
+        # Rounding the parameter vector allows for later independent testing of the calibration results (using calibrate.ipynb)        
         param_vector = pd.Series(round_sig(param_vector.random, sig=8), index=param_vector.name)
-
-        print("Rounded parameter vector:", param_vector, flush=True)
 
         if self.cores > 1:
             self.rank += 1
