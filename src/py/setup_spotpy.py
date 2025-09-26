@@ -169,15 +169,17 @@ class spot_setup_rvn(object):
 
         if low_seep: 
             seep_max = 0.03
+            seep_opt = 0.01
         else:
-            seep_max = 0.10
+            seep_max = 0.5
+            seep_opt = 0.25
 
         self.param_distributions = []
 
         if self.dep_scale:
-            self.param_distributions.append(sp.parameter.Uniform("dep_fact", low=0.60, high=1.20))
-        
-        self.param_distributions.append(sp.parameter.Uniform("seep_k", low=0.005, high=seep_max, optguess=0.03))
+            self.param_distributions.append(sp.parameter.Uniform("dep_fact", low=0.10, high=1.00))
+
+        self.param_distributions.append(sp.parameter.Uniform("seep_k", low=0.005, high=seep_max, optguess=seep_opt))
 
         if self.runoff_scale:
             #---------------------------------deprecate------------------------------------------
