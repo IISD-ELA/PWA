@@ -7,7 +7,7 @@ import geopandas as gpd
 
 
 
-def run_raven(raven_model, data_cal="data/calibration"):
+def run_raven(raven_model, data_cal="data/calibration", output_dir="output"):
     """
     Run the Raven model with the specified model file and calibration data directory.
 
@@ -25,7 +25,7 @@ def run_raven(raven_model, data_cal="data/calibration"):
         os.chdir(data_cal)
 
         # Build command string to run Raven from command line
-        cmd = f'Raven.exe {raven_model} -o ./output/'
+        cmd = f'Raven.exe {raven_model} -o ./{output_dir}/'
         print(f"Running: {cmd}")
 
         # Run the command using subprocess (capture output and read as human-readable text)
@@ -317,7 +317,7 @@ class RavenHydrograph:
     from the model output files.
     """
 
-    def __init__(self, rv_path: str):
+    def __init__(self, rv_path: str, _run_id: str = None):
         """
         Initialize the RavenHydrograph with the path to the Raven model output folder.
         Reads the hydrograph CSV file immediately and stores it in `self.data`.
@@ -327,6 +327,13 @@ class RavenHydrograph:
         rv_path (str): Path to the directory containing the Raven "output" folder.
         """
         self.rv_path = rv_path
+        
+        self.run_id = ''
+        if _run_id is not None :
+            if len(_run_id) > 0:
+                self.run_id = str('_' + _run_id)
+            
+
         self.data = self.read_hydrograph()
 
     def read_hydrograph(self) -> pd.DataFrame:
@@ -339,7 +346,7 @@ class RavenHydrograph:
         Returns an empty DataFrame if no hydrograph CSV file is found.
         """
         print(f'looking for hydrograph file in {self.rv_path}')
-        output_dir = os.path.join(self.rv_path, "output").replace('\\','/')
+        output_dir = os.path.join(self.rv_path, f"output{self.run_id}").replace('\\','/')
         output_csv = None
 
         # Search for a CSV in output folder with "hydrographs" in its name
@@ -459,9 +466,14 @@ def index_to_date(index, start_date="2003-01-01 00:00:00", freq="H"):
     start = pd.to_datetime(start_date)
     print(f"Warning: Converting index to date starting from {start_date} with frequency '{freq}'")
 
-    return start + pd.to_timedelta(index, unit=freq[0].lower())
+    if freq.lower() == 'h':
+        return start + pd.to_timedelta(index, unit=freq[0].lower())
+    elif freq.to_lower() == '3h':
+        return start + pd.to_timedelta(index * 3, unit='h')
+    else:
+        raise ValueError("Unsupported frequency. Use 'H' for hourly or '3H' for 3-hourly.")
 
-def plot_timeseries(_sim, _eval, _runoff=None, start_idx=None, end_idx=None):
+def plot_timeseries(_sim, _eval, _runoff=None, start_idx=None, end_idx=None, timestep = "H"):
     import matplotlib.pyplot as plt
     import numpy as np
 
@@ -471,7 +483,7 @@ def plot_timeseries(_sim, _eval, _runoff=None, start_idx=None, end_idx=None):
     if end_idx is None:
         end_idx = len(_sim)
 
-    time_index = index_to_date(np.arange(start_idx, end_idx))
+    time_index = index_to_date(np.arange(start_idx, end_idx), freq=timestep)
 
     plt.figure(figsize=(12, 6))
     plt.plot(time_index, _sim.iloc[start_idx:end_idx], label='Simulation')
@@ -483,7 +495,7 @@ def plot_timeseries(_sim, _eval, _runoff=None, start_idx=None, end_idx=None):
         ax2 = ax1.twinx()
         ax2.invert_yaxis()
         ax2.set_ylabel('Runoff [mm/day]', color = 'tab:red')
-        ax2.plot(time_index, _runoff.iloc[start_idx:end_idx], color = 'tab:red', label='Runoff (inverted)')
+        ax2.plot(time_index, _runoff.iloc[start_idx:end_idx].astype(float), color = 'tab:red', label='Runoff (inverted)')
         plt.title('Simulated vs Observed Hydrograph (with Runoff)')
     ax1.set_xlabel('Time Index')
     ax1.set_ylabel('Flow [m3/s]')

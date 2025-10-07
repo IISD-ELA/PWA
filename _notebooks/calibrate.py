@@ -36,8 +36,8 @@ print(DATA_CAL_NEW)
 
 # Set up the calibration 
 calibrator = spot_setup_rvn(raven_name, DATA_CAL_NEW, obj_fn= "nse_pbias", split_areas = "none", \
-                            spring_eval= True, low_seep=True, routing=True, dep_scaling=True, runoff_scaling=True, 
-                            mpi_cores=20)
+                            spring_eval= True, low_seep=False, routing=True, dep_scaling=True, runoff_scaling=True, channel_scaling = True,
+                            mpi_cores=3)
 
 
 print('db name is ' + dbname_str + '.csv')
@@ -69,11 +69,11 @@ def safe_get_best_runs(self, likes, pars, runs, percentage):
 
 alg.rope.get_best_runs = safe_get_best_runs
 
-sampler= alg.rope(calibrator, # must use this or ROPE flattens the parameter space and collapses!!
+sampler= alg.mc(calibrator, # must use this or ROPE flattens the parameter space and collapses!!
                 parallel='mpi',
                 dbname=dbname_str,
                 dbformat='csv',
                 save_sim=True)
 
-rep = 5000
+rep = 4
 sampler.sample(rep)
