@@ -489,14 +489,14 @@ def plot_timeseries(_sim, _eval, _runoff=None, start_idx=None, end_idx=None, tim
     plt.plot(time_index, _sim.iloc[start_idx:end_idx], label='Simulation')
     plt.plot(time_index, _eval.iloc[start_idx:end_idx], label='Observation')
     ax1 = plt.gca()
-    plt.title('Simulated vs Observed Hydrograph')
+    # plt.title('Simulated vs Observed Hydrograph')
 
     if _runoff is not None:
         ax2 = ax1.twinx()
         ax2.invert_yaxis()
         ax2.set_ylabel('Runoff [mm/day]', color = 'tab:red')
         ax2.plot(time_index, _runoff.iloc[start_idx:end_idx].astype(float), color = 'tab:red', label='Runoff (inverted)')
-        plt.title('Simulated vs Observed Hydrograph (with Runoff)')
+        plt.title('Simulated vs Observed Hydrograph \n (with Runoff)')
     ax1.set_xlabel('Time Index')
     ax1.set_ylabel('Flow [m3/s]')
     
