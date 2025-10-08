@@ -11,6 +11,7 @@ import geopandas as gpd
 
 sys.path.append(os.path.dirname(os.path.realpath(__file__)))
 import raven_py as rv
+import phydap
 
 def calculate_checksum(file_path):
     """Calculates the MD5 checksum of a file."""
@@ -48,7 +49,7 @@ class spot_setup_rvn(object):
     
     def __init__(self, model_name, calib_dir, obj_fn = "kge_adj", 
                  split_areas = "None", spring_eval = True, 
-                 low_seep = False, routing = False, dep_scaling = False, runoff_scaling = False, channel_scaling = False, mpi_cores = 0):
+                 low_seep = False, routing = False, dep_scaling = False, runoff_scaling = False, channel_scaling = False, phydap_adj = True, mpi_cores = 0):
         """
         Initialize the calibration setup.
 
@@ -65,6 +66,7 @@ class spot_setup_rvn(object):
         self.dep_scale = dep_scaling
         self.runoff_scale = runoff_scaling
         self.channel_scale = channel_scaling
+        self.phydap_adj = phydap_adj
         
         #-------------------------load subbasin ID for outlet-------------------------
         wsc_outlet_subid_path = calib_dir + f"\\input\\{self.model_name}_WSC_outlet.txt"
@@ -227,9 +229,14 @@ class spot_setup_rvn(object):
             self.param_distributions.append(sp.parameter.Uniform("t_peak_fact", low=0.4, high=1.2))
             self.param_distributions.append(sp.parameter.Uniform("qref_scale", low=0.5, high=2.0))
         
-        # Add bedslope scale factor/multiplier parameter (applies to all subbasins)
-        self.param_distributions.append(sp.parameter.Uniform("bedslope_mult", low=0.8, high=5.0, optguess=1.5))
-        
+        if self.channel_scale:
+            # Add bedslope scale factor/multiplier parameter (applies to all subbasins)
+            self.param_distributions.append(sp.parameter.Uniform("bedslope_mult", low=0.8, high=5.0, optguess=1.5))
+
+        if self.phydap_adj:
+            # Add PhyDAP adjustment parameter (applies to all subbasins)
+            self.param_distributions.append(sp.parameter.Uniform("runoff_offset", low=0, high=100, optguess=60))
+
         self.obj_fn = obj_fn
         self.spring_eval = spring_eval
         self.routing = routing
@@ -310,6 +317,20 @@ class spot_setup_rvn(object):
             else:
                 # Raise an error if the file extension is not supported
                 raise ValueError(f"Unsupported file extension: {ext}")
+            
+        if self.phydap_adj:
+            # Look for the .nc template in the input folder
+            inputs_path = os.path.join(sim_dir, "input").replace('\\','/')
+            for filename in os.listdir(inputs_path):
+                if filename.endswith("_tpl.nc") or filename.endswith("_template.nc"):
+                    nc_template_path = os.path.join(inputs_path, filename).replace('\\','/')
+                    break
+            nc_out_path = os.path.join(inputs_path, filename.replace("_tpl.nc", "_adj.nc").replace("_template.nc", "_adj.nc")).replace('\\','/')
+            print(f"Using PhyDAP template file: {nc_template_path}", flush=True)
+
+            # Adjust the PhyDAP runoff data using the offset function
+            phydap.time_offset(nc_template_path, nc_out_path, offset=np.round(param_vector["runoff_offset"]))
+
         
         # Run the Raven model with the updated files
         rv.run_raven(self.model_name, sim_dir)
@@ -326,18 +347,8 @@ class spot_setup_rvn(object):
         # read output
         obs = sim_hydrograph.read_obs(start_yr=2003, end_yr=2021, spring_only = self.spring_eval, refresh=True).reset_index(drop=True)
 
-        """
-        Calculate the objective function value to assess model performance.
+        # Calculate the objective function value to assess model performance.
 
-        Parameters:
-        ------------
-        simulation (pd.Series): Simulated discharge time series from the Raven model.
-        evaluation (pd.Series): Observed discharge time series for comparison.
-        Returns:
-        ------------
-        float: Adjusted Nash-Sutcliffe Efficiency (NSE) as the objective function value.
-               Lower values indicate better model fit (0 is perfect fit).
-        """
         
         print("Simulation:", sim, flush=True)
         print("Evaluation:", obs, flush=True)
