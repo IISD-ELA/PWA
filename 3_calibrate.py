@@ -14,7 +14,7 @@ from pathlib import Path
 import spotpy.algorithms as alg
 import numpy as np
 
-dbname_str = sys.argv[1] + datetime.now().strftime('%Y%m%d_%H')
+dbname_str = datetime.now().strftime('%Y%m%d_%H') + sys.argv[1]
 
 # Ensure the project directory is in the Python path
 prj_path = os.path.abspath(os.path.join(os.getcwd(), '..').replace('\\','/')) + "/PWA"
