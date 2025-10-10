@@ -396,11 +396,13 @@ class spot_setup_rvn(object):
         elif self.obj_fn == "nse_pbias":
             nse = pd.Series(1- np.sum((valid_sim - valid_eval) ** 2) / np.sum((valid_eval - np.mean(valid_eval)) ** 2))
             
-            # Need to evaluate pbias on the full year, not just spring
-            obs_full = sim_hydrograph.read_obs(start_yr=2003, end_yr=2021, spring_only = False, refresh=True).reset_index(drop=True)
-            sim_full = sim_hydrograph.read_sim(subbasin_id, start_yr=2003, end_yr=2021, spring_only = False, refresh=True).reset_index(drop=True)
+            ## Return to evaluating pbias on the spring period only. pbias calculation on full year was not necessary (issue was misdiagnosed)  
+            pbias = pd.Series(np.sum(valid_sim - valid_eval) / np.sum(valid_eval))
 
-            pbias = pd.Series(np.sum(sim_full - obs_full) / np.sum(obs_full))
+            # # Need to evaluate pbias on the full year, not just spring
+            # obs_full = sim_hydrograph.read_obs(start_yr=2003, end_yr=2021, spring_only = False, refresh=True).reset_index(drop=True)
+            # sim_full = sim_hydrograph.read_sim(subbasin_id, start_yr=2003, end_yr=2021, spring_only = False, refresh=True).reset_index(drop=True)
+            # pbias = pd.Series(np.sum(sim_full - obs_full) / np.sum(obs_full))
 
             weighted_obj = 2*(nse - 1) - np.sqrt(pbias**2)
 
