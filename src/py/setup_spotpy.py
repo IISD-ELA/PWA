@@ -341,11 +341,11 @@ class spot_setup_rvn(object):
         sim_hydrograph = rv.RavenHydrograph((sim_dir))
 
         # Return the simulated discharge time series for the specified subbasin
-        sim = sim_hydrograph.read_sim(subbasin_id, start_yr=2003, end_yr=2021, spring_only = self.spring_eval, refresh=True).reset_index(drop=True)
+        sim = sim_hydrograph.read_sim(subbasin_id, start_yr=1995, end_yr=2010, spring_only = self.spring_eval, refresh=True).reset_index(drop=True)
         # sim_2003 = sim.loc[sim["date"].year >= 2003]
 
         # read output
-        obs = sim_hydrograph.read_obs(start_yr=2003, end_yr=2021, spring_only = self.spring_eval, refresh=True).reset_index(drop=True)
+        obs = sim_hydrograph.read_obs(start_yr=1995, end_yr=2010, spring_only = self.spring_eval, refresh=True).reset_index(drop=True)
 
         # Calculate the objective function value to assess model performance.
 
