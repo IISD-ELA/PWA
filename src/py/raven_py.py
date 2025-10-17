@@ -416,10 +416,16 @@ class RavenHydrograph:
             self.eval = self.eval.loc[self.eval["date_time"].dt.month.lt(6)]
         
         # Using only noon values for evaluating the daily interval for interpolation
-        noon_index = self.eval.index[self.eval["date_time"].dt.hour == 12]
-        if len(noon_index) == 0:
-            print("No noon data found in the hydrograph. Trying 1pm.")
-            noon_index = self.eval.index[self.eval["date_time"].dt.hour == 13]
+        mid_day = 12
+        noon_index = []
+        # print(f"Available hours in data: {self.eval['date_time'].dt.hour.unique()}", flush=True)
+        while mid_day < 18 and len(noon_index) == 0:
+            noon_index = self.eval.index[self.eval["date_time"].dt.hour == mid_day]
+            if len(noon_index) > 0:
+                break
+            else: 
+                mid_day += 1
+                print(f"Warning: No data found at {mid_day-1}h, trying {mid_day}h instead.")
 
         noon_index_interval = int(noon_index[1]-noon_index[0])
 

@@ -29,7 +29,7 @@ from src.py.setup_spotpy import *
 
 # Check for Raven.exe in the DATA_CAL folder
 raven_exe_path = os.path.join(DATA_CAL, "Raven.exe").replace('\\','/')
-raven_name = "Cypress_New"
+raven_name = "grassmere"
 
 DATA_CAL_NEW = os.path.join(prj_path, r"Data\Calibration", raven_name).replace('\\','/')
 print(DATA_CAL_NEW)
@@ -75,5 +75,5 @@ sampler= alg.mc(calibrator, # must use this or ROPE flattens the parameter space
                 dbformat='csv',
                 save_sim=True)
 
-rep = 4
+rep = 9
 sampler.sample(rep)
