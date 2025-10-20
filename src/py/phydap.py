@@ -179,7 +179,7 @@ class phydap_var:
 
 ## Time offset function
 
-def time_offset(old_path, new_path, offset):
+def time_offset(old_path, new_path, offset, debug=False):
     """
     Applies a time offset to the 'time' variable in a NetCDF file.
     """
@@ -189,21 +189,32 @@ def time_offset(old_path, new_path, offset):
 
     shutil.copy(old_path, new_path)
 
+    if debug:
+        print(f"Copied file from {old_path} to {new_path} for time offset adjustment.", flush=True)
+
     phydap_file = phydap_nc(new_path, var_name='time', file_setting='r+')
+
+    if debug:
+        print(f"Opened file {new_path} for time offset adjustment.", flush=True)
 
     # Extract the time dimension as a np.array and apply the offset
     phydap_file.extract_variable('time')
-    phydap_file.time = phydap_file.time - offset
+    phydap_file.time = phydap_file.time - offset 
+
+    if debug:
+        print(f"Applied time offset of {offset} hours.", flush=True)
 
     # Import the modified time data back into the NetCDF file
     phydap_file.import_variable('time')
 
+    if debug:
+        print(f"Imported modified time data back into {new_path}.", flush=True)
+
     # Close the NetCDF file
     phydap_file.nc_close()
 
-    print(f"Applied a time offset of {offset} hours to {new_path}")
-
-    pass
+    if debug:
+        print(f"Applied a time offset of {offset} hours to {new_path}")
 
 
 
