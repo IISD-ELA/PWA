@@ -1,6 +1,6 @@
 # Take user input for model name and set up paths
 # model_str_in = input("Enter the model name (e.g., 'manning'): ")
-model_str = "grassmere"
+model_str = "manning"
 # if model_str[-1] == '/': 
 #     model_str = model_str
 # else :
