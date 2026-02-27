@@ -427,6 +427,7 @@ dependencies:
       - networkx==3.4.2
       - pandas==2.2.3
       - pillow==11.1.0
+      - pwa-hydro-conditioning-tools <2.0
       - pyogrio==0.10.0
       - pyparsing==3.2.1
       - pyproj==3.7.1
