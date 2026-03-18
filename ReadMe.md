@@ -1,38 +1,158 @@
-# PWA Project Repository
+# Prairie Watershed Analytics (PWA)
 
-## Description
+A comprehensive hydrological modeling system for Canadian prairie watersheds using the Raven hydrological framework. PWA specializes in depression-dominated landscapes, integrating LiDAR terrain analysis, PHyDAP runoff data, and advanced calibration techniques.
 
-Main working repository for code related to Prairie Watershed Analytics. Code built in this repository has been modularized and migrated to the following new repositories as pip packages:
+For more information on PWA see [IISD - Prairie Watershed Analytics](https://www.iisd.org/projects/prairie-watershed-analytics)
 
-- pwa_hydro-conditioning-tools
-- pwa_hydro-conditioning-main
+## Developer Repository
 
-## Getting started
+This repository is reserved for the development and testing of PWA features. User-oritented code is exported to separate repositories and python packages.
 
-Install anaconda and setup the pwa_dev environment using pwa_dev.yml
+For more context on the project design and development, see Model Design documentation.
 
-If using the hydroconditioning tool, install the relevant packages by following the instructions in the pwa-hydro-conditioning-main repo.
+## Features
 
-Add watershed data to the data/ folder and follow the instructions in the relevant jupyter notebooks.
+- **🏞️ Prairie-Specific Modeling**: Depression storage, runoff routing, and wetland representation
+- **📊 Complete Pipeline**: From raw LiDAR DEMs to calibrated hydrological models  (MPI-based parallel parameter optimization with Spotpy)
+- **🔬 Quality Assurance**: Built-in validation and diagnostic tools, performance metrics, uncertainty analysis, and visualization
 
-## Structure
+## Quick Start
 
-|-Data
-  |-Raw
-  |-Processed
+### 1. Environment Setup
 
-|-docs
+```bash
+# Clone repository
+git clone [repository-url]
+cd PWA
 
-|-md
+# Create conda environment
+conda env create -f pwa_dev.yml
+conda activate pwa_dev
 
-|-r
+# Install additional packages if needed
+# Follow instructions in pwa-hydro-conditioning-main repo for hydro-conditioning tools
+```
 
-|-references
+### 2. Data Setup
 
-|-src
+Create the following data structure in your project root:
 
-.gitignore
+```
+Data/
+├── Raw/              # Original input datasets
+├── Processed/        # Intermediate processing outputs  
+├── Calibration/      # Model calibration results
+└── [watershed_name]/ # Watershed-specific data folders
+```
 
-proj_conf.R <- This is where relative file path variables are stored
+**Required Data Downloads:**
+- Watershed boundaries from [CLRH Hydrofabrics](https://hydrology.uwaterloo.ca/CLRH/Hydrofabric.html)
+- Stream networks from [NHN datasets](https://ftp.maps.canada.ca/pub/nrcan_rncan/vector/geobase_nhn_rhn/shp_en/)
+- LiDAR DEMs from [Manitoba LiDAR portal](https://mli.gov.mb.ca/dems/index_external_lidar.html)
+- PHyDAP runoff data from [FRDR repository](https://www.frdr-dfdr.ca/repo/dataset/7ce4bd7a-4bcc-4f8c-8129-32a691f46c8e)
 
-ReadMe
+### 3. Run the Analysis Pipeline
+
+**Sequential Workflow** (see [Detailed Workflow Guide](docs/workflow-guide.md)):
+
+1. **[Step 0](https://github.com/user/repo/blob/main/_notebooks/0_depression_depths_calc.ipynb)**: Depression depths calculation
+2. **[Step 1](https://github.com/user/repo/blob/main/_notebooks/1_nc_processing.ipynb)**: NetCDF data processing  
+3. **[Step 2](https://github.com/user/repo/blob/main/_notebooks/2_raven_input_gen.ipynb)**: Raven input file generation
+4. **Step 3 OR 4**: Model calibration
+   - **Parallel**: `mpirun -c 14 python 3_calibrate.py results`
+   - **Interactive**: [4_calibrate.ipynb](https://github.com/user/repo/blob/main/_notebooks/4_calibrate.ipynb)
+5. **[Step 5](https://github.com/user/repo/blob/main/_notebooks/5_diagnostic.ipynb)**: Model diagnostics and validation
+
+## System Requirements
+
+### Minimum Requirements
+- **OS**: Windows 10/11, Linux, macOS
+- **RAM**: 8GB (16GB+ recommended for calibration)
+- **CPU**: Multi-core processor (4+ cores recommended)
+- **Storage**: 10GB+ free space
+
+### HPC Calibration Requirements
+- **MPI Installation**: For parallel calibration using [3_calibrate.py](3_calibrate.py)
+- **Cores**: 8+ cores recommended for efficient parameter exploration
+- **RAM**: 32GB+ for large watersheds or extensive parameter spaces
+
+### AWS infrastructre
+
+See markdown file: [infra/aws_guide.md](infra\aws_guide.md)
+
+## Project Structure
+
+```
+PWA/
+├── _notebooks/          # Main analysis pipeline (Steps 0-5)
+│   ├── 0_depression_depths_calc.ipynb
+│   ├── 1_nc_processing.ipynb  
+│   ├── 2_raven_input_gen.ipynb
+│   ├── 4_calibrate.ipynb
+│   ├── 5_diagnostic.ipynb
+│   ├── raven_tests.py   # Validation and testing utilities
+│   └── Data/            # Notebook-specific data
+├── src/                 # Core Python modules
+│   └── py/             # Core libraries (raven_py, setup_spotpy, phydap)
+├── dev/                 # Development modules and tools
+├── Data/                # Main data repository
+│   ├── Calibration/    # Model calibration outputs
+│   ├── [watersheds]/   # Watershed-specific data folders
+│   └── ...
+├── docs/                # Documentation
+│   └── workflow-guide.md # Comprehensive workflow documentation
+├── archive/             # Legacy code and references
+├── 3_calibrate.py       # HPC parallel calibration script
+├── hydro_condition.py   # Hydrological conditioning workflows
+├── pwa_dev.yml          # Development environment specification
+├── aws_env.yml          # AWS/cloud environment setup
+└── ReadMe.md           # This file
+```
+
+## Documentation
+
+- **[📖 Complete Workflow Guide](docs/workflow-guide.md)**: Step-by-step analysis pipeline
+- **[🔧 Testing & Validation](https://github.com/user/repo/blob/main/_notebooks/raven_tests.py)**: Quality assurance utilities
+- **[⚙️ Environment Setup](pwa_dev.yml)**: Conda environment specification
+
+## Package Dependencies
+
+PWA builds on modularized packages:
+- **pwa_hydro-conditioning-tools**: Core hydro-conditioning utilities
+- **pwa_hydro-conditioning-main**: Main processing workflows
+
+## Hardware Recommendations
+
+### For Standard Workflows
+- **Desktop/Laptop**: 16GB RAM, 8-core CPU, SSD storage
+- **Processing Time**: 2-6 hours for complete watershed analysis
+
+### For HPC Calibration
+- **Cluster/Workstation**: 32GB+ RAM, 16+ cores, high-speed storage
+- **Processing Time**: 4-24 hours depending on parameter space
+- **Network**: High-bandwidth for data transfer
+
+## Troubleshooting
+
+### Common Issues
+- **MPI Installation**: Ensure proper MPI setup for [3_calibrate.py](3_calibrate.py)
+- **Memory Errors**: Reduce parameter space or increase system RAM  
+- **NetCDF Issues**: Validate file format using [raven_tests.py](https://github.com/user/repo/blob/main/_notebooks/raven_tests.py)
+- **Missing Data**: Verify all required datasets are downloaded and placed correctly
+
+### Support
+- Check [workflow guide](docs/workflow-guide.md) for detailed troubleshooting
+- Review individual notebook documentation for step-specific issues
+- Use validation functions in [raven_tests.py](https://github.com/user/repo/blob/main/_notebooks/raven_tests.py) for data quality checks
+
+## Contributing
+
+This repository contains production code for prairie watershed analytics. Code improvements and documentation enhancements are welcome following standard Git workflows.
+
+## License
+
+[Add license information]
+
+---
+
+*For detailed analysis procedures, see [docs/workflow-guide.md](docs/workflow-guide.md)*

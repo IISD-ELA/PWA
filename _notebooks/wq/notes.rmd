@@ -1,8 +1,0 @@
----
-title: "Notes"
-author: "Thomas Saleh"
-date: "01/16/2023"
-output: 
-  html_document:
-    keep_md: true
----

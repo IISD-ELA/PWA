@@ -24,3 +24,4 @@ raven/**/output/
 __pycache__/
 .vscode/
 hydro_condition.py
+archive/
