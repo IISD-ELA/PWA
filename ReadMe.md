@@ -35,17 +35,18 @@ conda activate pwa_dev
 
 ### 2. Data Setup
 
-Create the following data structure in your project root:
-
+Create a `Data/` folder in your project root. Files can be dropped here before running each process. 
+Data is structured for each watershed as follows:
 ```
 Data/
-├── Raw/              # Original input datasets
-├── Processed/        # Intermediate processing outputs  
-├── Calibration/      # Model calibration results
-└── [watershed_name]/ # Watershed-specific data folders
+└── [Watershed Name]/    # Watershed-specific data folders
+   ├── Raw/              # Original input datasets
+   ├── Processed/        # Intermediate processing outputs  
+   └── Calibration/      # Model calibration results
 ```
 
-**Required Data Downloads:**
+**Required Data Downloads:** \
+*Data must be added to the repository in the correct order, see notes at the start of each process notebook*
 - Watershed boundaries from [CLRH Hydrofabrics](https://hydrology.uwaterloo.ca/CLRH/Hydrofabric.html)
 - Stream networks from [NHN datasets](https://ftp.maps.canada.ca/pub/nrcan_rncan/vector/geobase_nhn_rhn/shp_en/)
 - LiDAR DEMs from [Manitoba LiDAR portal](https://mli.gov.mb.ca/dems/index_external_lidar.html)
@@ -55,7 +56,9 @@ Data/
 
 **Sequential Workflow** (see [Detailed Workflow Guide](docs/workflow-guide.md)):
 
-1. **[Step 0](https://github.com/user/repo/blob/main/_notebooks/0_depression_depths_calc.ipynb)**: Depression depths calculation
+1. **[Step 0](https://github.com/user/repo/blob/main/_notebooks/0_depression_depths_calc.ipynb)**: Depression depths calculation \
+      *Step 0 process has been replaced with the hydro-conditioning-main.py repository. The current notebook holds legacy code and   
+      some temporary steps for troubleshooting the new hydro-conditioning process.*
 2. **[Step 1](https://github.com/user/repo/blob/main/_notebooks/1_nc_processing.ipynb)**: NetCDF data processing  
 3. **[Step 2](https://github.com/user/repo/blob/main/_notebooks/2_raven_input_gen.ipynb)**: Raven input file generation
 4. **Step 3 OR 4**: Model calibration
@@ -112,7 +115,7 @@ PWA/
 ## Documentation
 
 - **[📖 Complete Workflow Guide](docs/workflow-guide.md)**: Step-by-step analysis pipeline
-- **[🔧 Testing & Validation](https://github.com/user/repo/blob/main/_notebooks/raven_tests.py)**: Quality assurance utilities
+- **🔧 Testing & Validation**: Quality assurance utilities (Not yet available)
 - **[⚙️ Environment Setup](pwa_dev.yml)**: Conda environment specification
 
 ## Package Dependencies
@@ -125,11 +128,13 @@ PWA builds on modularized packages:
 
 ### For Standard Workflows
 - **Desktop/Laptop**: 16GB RAM, 8-core CPU, SSD storage
-- **Processing Time**: 2-6 hours for complete watershed analysis
+- **Current Processing Times**: 
+   - < 1h for hydro-conditioning
+   - < 1h for Raven model generation
 
 ### For HPC Calibration
 - **Cluster/Workstation**: 32GB+ RAM, 16+ cores, high-speed storage
-- **Processing Time**: 4-24 hours depending on parameter space
+- **Processing Time**: 12 to 36 hours (depending on watershed size and data resolution)
 - **Network**: High-bandwidth for data transfer
 
 ## Troubleshooting
@@ -137,13 +142,11 @@ PWA builds on modularized packages:
 ### Common Issues
 - **MPI Installation**: Ensure proper MPI setup for [3_calibrate.py](3_calibrate.py)
 - **Memory Errors**: Reduce parameter space or increase system RAM  
-- **NetCDF Issues**: Validate file format using [raven_tests.py](https://github.com/user/repo/blob/main/_notebooks/raven_tests.py)
 - **Missing Data**: Verify all required datasets are downloaded and placed correctly
 
 ### Support
 - Check [workflow guide](docs/workflow-guide.md) for detailed troubleshooting
 - Review individual notebook documentation for step-specific issues
-- Use validation functions in [raven_tests.py](https://github.com/user/repo/blob/main/_notebooks/raven_tests.py) for data quality checks
 
 ## Contributing
 
@@ -151,8 +154,7 @@ This repository contains production code for prairie watershed analytics. Code i
 
 ## License
 
-[Add license information]
-
+TBD
 ---
 
 *For detailed analysis procedures, see [docs/workflow-guide.md](docs/workflow-guide.md)*
