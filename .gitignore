@@ -25,3 +25,10 @@ __pycache__/
 .vscode/
 hydro_condition.py
 archive/
+
+# Python build/test artifacts
+*.egg-info/
+.pytest_cache/
+
+# Local tooling config
+.gh_config/
