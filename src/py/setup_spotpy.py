@@ -63,8 +63,8 @@ class spot_setup_rvn(object):
         if calib_dir[-1] == '/':
             calib_dir = calib_dir[:-1]
 
-            self.start_year = 1983
-            self.end_year = 2018
+        self.start_year = 1983
+        self.end_year = 2018
 
         if tt_split_freq > 1:
             model_years = np.array(range(self.start_year, self.end_year))
