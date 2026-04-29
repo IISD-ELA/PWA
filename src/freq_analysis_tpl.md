@@ -1,5 +1,7 @@
 # Flood frequency analysis for the {watershed}
 
+{warning_message}
+
 ## Note on Methods
 
 This data was automatically generated from either Water Survey of Canada gauge data or modeled flows for the watershed in question. The results of this analysis are intended for informational and exploratory research purposes only.

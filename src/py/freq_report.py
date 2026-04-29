@@ -196,12 +196,28 @@ if gof['ad_pval'][0] is not None:
 else:
     peak_flow_gof = "Goodness of fit statistics not available"
 
+pct_removed = (mgbt_removed / len(wy_summary)) * 100
+
 # Replace placeholders in template
 output_content = template_content.replace('{watershed}', watershed_name)
 output_content = output_content.replace('{event_returns}', event_returns)
 output_content = output_content.replace('{mgbt_removed}', str(mgbt_removed))
 output_content = output_content.replace('{mgbt_threshold}', str(mgbt_threshold))
 output_content = output_content.replace('{peak_flow_goodness_fit}', peak_flow_gof)
+
+if pct_removed == 0:
+    warning_msg = ""
+elif pct_removed < 10:
+    warning_msg = f"⚠️ PLEASE NOTE: {pct_removed:.1f}% of water years were removed due to PILF events (threshold: {mgbt_threshold:.2f} m³/s). \ 
+    \n This may have a minor impact on frequency estimates, especially for lower return periods. \
+    \n The goodness of fit calculations were performed on the reduced dataset, so interpret results with caution."
+
+elif pct_removed > 20:
+    warning_msg = f"❌ WARNING: {pct_removed:.1f}% of water years were removed due to PILF events values (threshold: {mgbt_threshold:.2f} m³/s). \
+    \n This may have a sizeable impact on frequency estimates for all return periods estimated. \
+    \n The goodness of fit calculations were performed on the reduced dataset, so interpret results with caution."
+
+output_content = output_content.replace('{warning_message}', warning_msg)
 
 # Write to output file
 output_path = dir_path + "freq_analysis.md"
