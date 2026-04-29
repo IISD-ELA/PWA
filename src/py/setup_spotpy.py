@@ -49,7 +49,8 @@ class spot_setup_rvn(object):
     
     def __init__(self, model_name, calib_dir, obj_fn = "kge_adj", 
                  split_areas = "None", spring_eval = True, 
-                 low_seep = False, routing = False, dep_scaling = False, runoff_scaling = False, channel_scaling = False, phydap_adj = True, mpi_cores = 0):
+                 low_seep = False, routing = False, dep_scaling = False, runoff_scaling = False, channel_scaling = False, phydap_adj = True,  
+                 mpi_cores = 0, tt_split_freq = 4):
         """
         Initialize the calibration setup.
 
@@ -62,6 +63,19 @@ class spot_setup_rvn(object):
         if calib_dir[-1] == '/':
             calib_dir = calib_dir[:-1]
 
+            self.start_year = 1983
+            self.end_year = 2018
+
+        if tt_split_freq > 1:
+            model_years = np.array(range(self.start_year, self.end_year))
+            test_years = model_years[::tt_split_freq]
+            self.train_years = model_years[~np.isin(model_years, test_years)]
+
+        else:
+            self.train_years = np.array(range(self.start_year + 5, self.end_year)) # keep 5 years of test data at the start of the model period.
+            print("Keeping 5 years at start of the model period for testing. Training years are: ", self.train_years[:10], "...")
+
+              # All years for training
         self.model_name = model_name
         self.dep_scale = dep_scaling
         self.runoff_scale = runoff_scaling
@@ -340,12 +354,14 @@ class spot_setup_rvn(object):
 
         sim_hydrograph = rv.RavenHydrograph((sim_dir))
 
+        print("Reading data from the following training years: ", self.train_years[:10], "...")
+
         # Return the simulated discharge time series for the specified subbasin
-        sim = sim_hydrograph.read_sim(subbasin_id, start_yr=1995, end_yr=2010, spring_only = self.spring_eval, refresh=True).reset_index(drop=True)
+        sim = sim_hydrograph.read_sim(subbasin_id, years=self.train_years, spring_only = self.spring_eval, refresh=True).reset_index(drop=True)
         # sim_2003 = sim.loc[sim["date"].year >= 2003]
 
         # read output
-        obs = sim_hydrograph.read_obs(start_yr=1995, end_yr=2010, spring_only = self.spring_eval, refresh=True).reset_index(drop=True)
+        obs = sim_hydrograph.read_obs(years=self.train_years, spring_only = self.spring_eval, refresh=True).reset_index(drop=True)
 
         # Calculate the objective function value to assess model performance.
 
@@ -373,6 +389,7 @@ class spot_setup_rvn(object):
 
         # Calculate NSE
         # NSE is already adjusted in the built-in spotpy function
+
 
         if self.obj_fn == "kge_adj" :
             kge_adj = pd.Series(1-np.sqrt((2*(np.corrcoef(valid_sim, valid_eval)[0,1]-1))**2 + \

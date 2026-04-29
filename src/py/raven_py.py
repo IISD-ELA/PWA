@@ -4,6 +4,7 @@ import shlex
 import pandas as pd
 import re
 import geopandas as gpd
+import numpy as np
 
 
 
@@ -368,7 +369,7 @@ class RavenHydrograph:
             print("No hydrograph CSV file found in output directory.")
             return pd.DataFrame() # Return empty DataFrame if not found
 
-    def read_sim(self, subbasin_id, start_yr, end_yr, spring_only = True, refresh=False) -> pd.DataFrame:
+    def read_sim(self, subbasin_id, years: np.array, spring_only = True, refresh=False) -> pd.DataFrame:
         """
         Extract simulated discharge data for a given subbasin from the hydrograph DataFrame.
 
@@ -384,7 +385,7 @@ class RavenHydrograph:
             self.data = self.read_hydrograph()
             # self.data = self.data.loc[self.data["date"].dt.year.between(start_yr, end_yr)]
 
-        self.eval = self.data.loc[self.data["date_time"].dt.year.between(start_yr, end_yr)]
+        self.eval = self.data.loc[self.data["date_time"].dt.year.isin(years)]
 
         if spring_only:
             self.eval = self.eval.loc[self.eval["date_time"].dt.month.lt(6)]
@@ -398,7 +399,7 @@ class RavenHydrograph:
 
         return simulated
 
-    def read_obs(self, start_yr, end_yr, spring_only = True, refresh=False) -> pd.DataFrame:
+    def read_obs(self, years: np.array, spring_only = True, refresh=False) -> pd.DataFrame:
         """
         Extract observed discharge data from the hydrograph DataFrame.
 
@@ -410,7 +411,7 @@ class RavenHydrograph:
             self.data = self.read_hydrograph()
             # self.data = self.data.loc[self.data["date"].dt.year.between(start_yr, end_yr)]
 
-        self.eval = self.data.loc[self.data["date_time"].dt.year.between(start_yr, end_yr)]
+        self.eval = self.data.loc[self.data["date_time"].dt.year.isin(years)]
 
         if spring_only:
             self.eval = self.eval.loc[self.eval["date_time"].dt.month.lt(6)]
@@ -440,7 +441,7 @@ class RavenHydrograph:
                 break
         return observed
     
-    def read_runoff(self, start_yr, end_yr, spring_only = True, refresh=False) -> pd.DataFrame:
+    def read_runoff(self, years: np.array, spring_only = True, refresh=False) -> pd.DataFrame:
         """
         Extract total runoff data from the hydrograph DataFrame.
 
@@ -452,7 +453,7 @@ class RavenHydrograph:
             self.data = self.read_hydrograph()
             # self.data = self.data.loc[self.data["date"].dt.year.between(start_yr, end_yr)]
 
-        self.eval = self.data.loc[self.data["date_time"].dt.year.between(start_yr, end_yr)]
+        self.eval = self.data.loc[self.data["date_time"].dt.year.isin(years)]
 
         if spring_only:
             self.eval = self.eval.loc[self.eval["date_time"].dt.month.lt(8)]
@@ -481,7 +482,6 @@ def index_to_date(index, start_date="2003-01-01 00:00:00", freq="H"):
 
 def plot_timeseries(_sim, _eval, _runoff=None, start_idx=None, end_idx=None, timestep = "H"):
     import matplotlib.pyplot as plt
-    import numpy as np
 
     # Use full range if not specified
     if start_idx is None:
