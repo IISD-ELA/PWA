@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pwa-calibration"
+version = "0.1.0"
+description = "SPOTPY-driven calibration of Raven hydrological models for PWA"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "numpy>=1.24",
+    "pandas>=2.0",
+    "geopandas>=0.14",
+    "spotpy>=1.6",
+    "netCDF4>=1.6",
+    "pwa-raven",
+]
+# mpi4py is required for parallel calibration but is left as an optional
+# extra because it needs a system MPI install (OpenMPI / MPICH) which pip
+# cannot provision. Install via:
+#   conda install -c conda-forge mpi4py
+# or
+#   pip install mpi4py   # only after a system MPI is on PATH
+#
+# Raven binary is NOT a pip dependency. Install from:
+#   http://raven.uwaterloo.ca/Downloads.html
+# Place on PATH as 'Raven' (Linux/macOS) or 'Raven.exe' (Windows).
+
+[project.optional-dependencies]
+mpi = ["mpi4py>=3.1"]
+dev = [
+    "pytest>=7",
+    "pytest-cov>=4",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "-ra",
+]
+markers = [
+    "regression: tests requiring real watershed data",
+    "integration: tests that invoke Raven, MPI, or other external binaries",
+]
