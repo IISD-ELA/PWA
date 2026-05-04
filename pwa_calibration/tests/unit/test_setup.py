@@ -260,6 +260,56 @@ def test_build_param_distributions_low_seep_narrows_prior(tmp_path: Path):
     assert low_seep.maxbound < 0.05  # well below 0.5 default
 
 
+# ---------------------------------------------------------------------------
+# Input-file validation
+# ---------------------------------------------------------------------------
+
+
+def test_expected_input_files_lists_all(tmp_path: Path):
+    cfg = CalibrationConfig(model_name="grass", calib_dir=tmp_path)
+    files = cfg.expected_input_files()
+    expected_names = {
+        "grass_WSC_outlet.txt",
+        "aspect_ratios.csv",
+        "grass_HRU_areas.csv",
+        "grass_tp_tc.csv",
+        "CLRH_basins_depression_depths.shp",
+    }
+    assert {p.name for p in files} == expected_names
+    assert all(p.parent == tmp_path / "input" for p in files)
+
+
+def test_validate_inputs_exist_passes_when_all_present(tmp_path: Path):
+    cfg = CalibrationConfig(model_name="grass", calib_dir=tmp_path)
+    cfg.input_dir.mkdir(parents=True)
+    for path in cfg.expected_input_files():
+        path.touch()
+    cfg.validate_inputs_exist()  # should not raise
+
+
+def test_validate_inputs_exist_raises_listing_all_missing(tmp_path: Path):
+    cfg = CalibrationConfig(model_name="grass", calib_dir=tmp_path)
+    cfg.input_dir.mkdir(parents=True)
+    # Create only the WSC outlet; everything else missing.
+    (cfg.input_dir / "grass_WSC_outlet.txt").touch()
+    with pytest.raises(FileNotFoundError) as exc_info:
+        cfg.validate_inputs_exist()
+    msg = str(exc_info.value)
+    assert "aspect_ratios.csv" in msg
+    assert "grass_HRU_areas.csv" in msg
+    assert "grass_tp_tc.csv" in msg
+    assert "CLRH_basins_depression_depths.shp" in msg
+    # Already-staged file is NOT in the missing list.
+    assert "WSC_outlet.txt" not in msg
+
+
+def test_validate_inputs_exist_raises_when_input_dir_absent(tmp_path: Path):
+    cfg = CalibrationConfig(model_name="grass", calib_dir=tmp_path)
+    # No make_dirs; the entire input directory is absent.
+    with pytest.raises(FileNotFoundError, match="missing"):
+        cfg.validate_inputs_exist()
+
+
 def test_build_param_distributions_full_set(tmp_path: Path):
     cfg = CalibrationConfig(
         model_name="m",

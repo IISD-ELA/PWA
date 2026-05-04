@@ -140,6 +140,10 @@ def run_calibration(
     """
     import spotpy.algorithms as alg
 
+    # Fail fast if expected input files are missing — saves a 24-hour
+    # AWS calibration job from crashing on a missing CSV partway through.
+    config.validate_inputs_exist()
+
     patch_rope_get_best_runs()
 
     dbname = _build_dbname(db_suffix)

@@ -230,6 +230,42 @@ class CalibrationConfig:
     def input_dir(self) -> Path:
         return self.calib_dir / "input"
 
+    def expected_input_files(self) -> list[Path]:
+        """Files load_calibration_inputs reads — use to fail fast.
+
+        Returns paths to the WSC outlet text file, the aspect-ratios CSV,
+        the per-watershed HRU-areas CSV, the per-watershed tp/tc CSV, and
+        the depression-depths shapefile.
+        """
+        return [
+            self.input_dir / f"{self.model_name}_WSC_outlet.txt",
+            self.input_dir / "aspect_ratios.csv",
+            self.input_dir / f"{self.model_name}_HRU_areas.csv",
+            self.input_dir / f"{self.model_name}_tp_tc.csv",
+            self.input_dir / "CLRH_basins_depression_depths.shp",
+        ]
+
+    def validate_inputs_exist(self) -> None:
+        """Fail fast if expected calibration inputs are missing.
+
+        Raises :class:`FileNotFoundError` listing every missing file in one
+        message — saves the user the multiple round trips of
+        re-running calibration just to discover the next missing file.
+        Sidecars (.dbf/.shx/.prj/.cpg for the shapefile) aren't enumerated;
+        geopandas raises clear errors when those are missing alongside a
+        present .shp.
+        """
+        missing = [p for p in self.expected_input_files() if not p.is_file()]
+        if missing:
+            bullet_list = "\n  - ".join(str(p) for p in missing)
+            raise FileNotFoundError(
+                "Calibration cannot start; the following expected input "
+                f"files are missing:\n  - {bullet_list}\n"
+                f"Stage them into {self.input_dir} (typically via "
+                "pwa_calibration.prepare.prepare_calibration_directory) "
+                "and re-run."
+            )
+
 
 # ---------------------------------------------------------------------------
 # Input-file loading helpers
