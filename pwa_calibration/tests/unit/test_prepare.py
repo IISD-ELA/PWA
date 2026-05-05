@@ -125,6 +125,49 @@ def test_stage_raven_binary_skips_if_present(paths: StagingPaths):
     assert paths.calibration_root / "Raven.exe" in report.skipped_existing
 
 
+def test_stage_raven_binary_handles_unix_named_source(tmp_path: Path):
+    """macOS/Linux: source folder has ``Raven`` (no extension); destination
+    should preserve that name rather than hardcoding ``Raven.exe``."""
+    data_root = tmp_path / "Data"
+    data_root.mkdir()
+    raven_proc = data_root / WATERSHED / "Raven" / "Processed"
+    raven_proc.mkdir(parents=True)
+    (raven_proc / "Raven").write_bytes(b"FAKE_UNIX_BINARY")
+    paths = StagingPaths(
+        watershed_name=WATERSHED,
+        data_root=data_root,
+        netcdf_category=NETCDF_CATEGORY,
+    )
+    create_calibration_folders(paths)
+    report = StagingReport()
+    stage_raven_binary(paths, report)
+    # Source preserved, NOT renamed to Raven.exe
+    assert (paths.calibration_root / "Raven").is_file()
+    assert not (paths.calibration_root / "Raven.exe").exists()
+    assert (paths.calibration_root / "Raven").read_bytes() == b"FAKE_UNIX_BINARY"
+
+
+def test_stage_raven_binary_prefers_unix_name_when_both_present(tmp_path: Path):
+    """When both ``Raven`` and ``Raven.exe`` exist, prefer the Unix name
+    (deterministic — matches the lookup order in raven_exe_source)."""
+    data_root = tmp_path / "Data"
+    data_root.mkdir()
+    raven_proc = data_root / WATERSHED / "Raven" / "Processed"
+    raven_proc.mkdir(parents=True)
+    (raven_proc / "Raven").write_bytes(b"UNIX")
+    (raven_proc / "Raven.exe").write_bytes(b"WINDOWS")
+    paths = StagingPaths(
+        watershed_name=WATERSHED,
+        data_root=data_root,
+        netcdf_category=NETCDF_CATEGORY,
+    )
+    create_calibration_folders(paths)
+    report = StagingReport()
+    stage_raven_binary(paths, report)
+    assert (paths.calibration_root / "Raven").read_bytes() == b"UNIX"
+    assert not (paths.calibration_root / "Raven.exe").exists()
+
+
 def test_stage_depression_depths_copies_only_recognized_extensions(paths: StagingPaths):
     create_calibration_folders(paths)
     report = StagingReport()
@@ -233,8 +276,10 @@ def test_prepare_calibration_directory_records_missing_sources(tmp_path: Path):
         watershed_name="skinny", data_root=data_root, netcdf_category="Runoff"
     )
     report = prepare_calibration_directory(paths)
-    # Raven.exe and GridWeights.txt are missing → flagged in report.
+    # Raven binary, GridWeights.txt, etc. are missing → flagged in report.
+    # Raven binary name is platform-dependent (Raven on macOS/Linux,
+    # Raven.exe on Windows) — assert on either to make the test portable.
     missing_names = {p.name for p in report.missing_sources}
-    assert "Raven.exe" in missing_names
+    assert "Raven" in missing_names or "Raven.exe" in missing_names
     assert "GridWeights.txt" in missing_names
     assert "aspect_ratios.csv" in missing_names

@@ -83,7 +83,21 @@ class StagingPaths:
 
     @property
     def raven_exe_source(self) -> Path:
-        return self.raven_processed_dir / "Raven.exe"
+        """Path to the Raven binary in the source folder.
+
+        Tries the Linux/macOS convention (``Raven``) first, then the Windows
+        convention (``Raven.exe``). Returns the first match. If neither
+        exists, returns the platform-default name (``Raven.exe`` on Windows,
+        ``Raven`` elsewhere) so the missing-source path in
+        :func:`_copy_if_absent` reports a sensible filename.
+        """
+        import platform
+        for name in ("Raven", "Raven.exe"):
+            candidate = self.raven_processed_dir / name
+            if candidate.is_file():
+                return candidate
+        default_name = "Raven.exe" if platform.system() == "Windows" else "Raven"
+        return self.raven_processed_dir / default_name
 
     @property
     def aspect_ratios_source(self) -> Path:
@@ -173,8 +187,14 @@ def _files_with_suffixes(folder: Path, suffixes: Iterable[str]) -> list[Path]:
 
 
 def stage_raven_binary(paths: StagingPaths, report: StagingReport) -> None:
-    """1.3.1 — copy ``Raven.exe`` into the calibration root."""
-    _copy_if_absent(paths.raven_exe_source, paths.calibration_root / "Raven.exe", report)
+    """1.3.1 — copy the Raven binary into the calibration root.
+
+    Preserves the source filename (``Raven`` or ``Raven.exe``), so the
+    destination matches whatever convention the source folder uses.
+    On macOS/Linux the binary is just ``Raven``; on Windows it's ``Raven.exe``.
+    """
+    source = paths.raven_exe_source
+    _copy_if_absent(source, paths.calibration_root / source.name, report)
 
 
 def stage_depression_depths(paths: StagingPaths, report: StagingReport) -> None:
