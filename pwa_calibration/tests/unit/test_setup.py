@@ -338,3 +338,81 @@ def test_build_param_distributions_full_set(tmp_path: Path):
         "bedslope_mult",
         "runoff_offset",
     ]
+
+
+# ---------------------------------------------------------------------------
+# to_dict / to_yaml / from_yaml round-trip
+# ---------------------------------------------------------------------------
+
+
+def test_to_dict_round_trip(tmp_path: Path):
+    original = CalibrationConfig(
+        model_name="grassmere",
+        calib_dir=tmp_path,
+        obj_fn="nse_pbias",
+        eval_start_yr=2003,
+        eval_end_yr=2021,
+        spring_eval=False,
+        low_seep=True,
+        routing=True,
+        dep_scaling=True,
+        runoff_scaling=True,
+        channel_scaling=True,
+        phydap_adj=False,
+        mpi_cores=14,
+    )
+    rebuilt = CalibrationConfig.from_dict(original.to_dict())
+    assert rebuilt == original
+
+
+def test_from_dict_minimal_uses_defaults(tmp_path: Path):
+    cfg = CalibrationConfig.from_dict({
+        "model_name": "grassmere",
+        "calib_dir": str(tmp_path),
+    })
+    assert cfg.model_name == "grassmere"
+    assert cfg.obj_fn == "kge_adj"      # default
+    assert cfg.eval_start_yr == 1995    # default
+    assert cfg.spring_eval is True      # default
+    assert cfg.routing is False         # default
+
+
+def test_from_dict_rejects_missing_model_name(tmp_path: Path):
+    with pytest.raises(ValueError, match="model_name"):
+        CalibrationConfig.from_dict({"calib_dir": str(tmp_path)})
+
+
+def test_from_dict_rejects_missing_calib_dir():
+    with pytest.raises(ValueError, match="calib_dir"):
+        CalibrationConfig.from_dict({"model_name": "grassmere"})
+
+
+def test_to_yaml_writes_human_readable_file(tmp_path: Path):
+    cfg = CalibrationConfig(model_name="grassmere", calib_dir=tmp_path)
+    out = tmp_path / "out" / "calibration.yml"
+    written = cfg.to_yaml(out)
+    assert written == out
+    text = out.read_text()
+    assert text.startswith("model_name: grassmere")
+    assert "!!python" not in text
+    assert "obj_fn: kge_adj" in text
+
+
+def test_to_yaml_round_trip(tmp_path: Path):
+    cfg = CalibrationConfig(
+        model_name="manning",
+        calib_dir=tmp_path,
+        obj_fn="nse",
+        mpi_cores=8,
+    )
+    out = tmp_path / "calibration.yml"
+    cfg.to_yaml(out)
+    rebuilt = CalibrationConfig.from_yaml(out)
+    assert rebuilt == cfg
+
+
+def test_to_yaml_creates_parent_dir(tmp_path: Path):
+    cfg = CalibrationConfig(model_name="m", calib_dir=tmp_path)
+    out = tmp_path / "deeply" / "nested" / "calibration.yml"
+    cfg.to_yaml(out)
+    assert out.is_file()

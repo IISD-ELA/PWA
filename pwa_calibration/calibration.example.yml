@@ -1,0 +1,69 @@
+# Example configuration for the PWA Step 3 calibration pipeline.
+#
+# Copy to calibration.yml and edit, OR generate one interactively:
+#     python -m pwa_calibration.init_config calibration.yml
+#
+# Then run:
+#     mpirun -c <N> python -m pwa_calibration.runner <SUFFIX> \
+#         --config calibration.yml
+#
+# Per-field flags (e.g. --obj-fn, --routing) override the YAML when
+# both are present.
+
+# ---- Required ----------------------------------------------------------
+
+# Watershed / model name. Used for input-file naming, e.g.
+# {model_name}_HRU_areas.csv, {model_name}_tp_tc.csv.
+model_name: grassmere
+
+# Calibration root directory. Must contain input/, output/, templates/
+# and the .rv* files. Stage them with prepare_calibration_directory or
+# the --stage-from CLI flag.
+calib_dir: ./Data/Calibration/grassmere
+
+# ---- Objective function ------------------------------------------------
+
+# One of:
+#   kge_adj    — Adjusted Kling-Gupta Efficiency (default)
+#   nse        — Nash-Sutcliffe Efficiency
+#   nse_pbias  — Composite 2*(NSE-1) - sqrt(PBIAS^2)
+obj_fn: kge_adj
+
+# ---- Evaluation window -------------------------------------------------
+
+# Inclusive year range used to compare simulated vs observed flows.
+# Was hardcoded 1995-2010 in the original notebook.
+eval_start_yr: 1995
+eval_end_yr: 2010
+
+# If true, restrict evaluation to spring months (Jan-May).
+spring_eval: true
+
+# ---- Parameter priors --------------------------------------------------
+
+# Narrow seepage-rate prior to [0.005, 0.03] (default [0.005, 0.5]).
+low_seep: false
+
+# ---- Parameter groups to calibrate -------------------------------------
+#
+# Each toggle adds one or more parameter distributions to the SPOTPY
+# search space. False = leave that parameter at its template default.
+
+routing: false
+dep_scaling: false
+runoff_scaling: false
+channel_scaling: false
+phydap_adj: true
+
+# ---- Spatial subdivision ----------------------------------------------
+
+# Currently only "none" / "no_split" are supported. The "clrh" and
+# "phydap" splits from the original notebook were deprecated.
+split_areas: none
+
+# ---- MPI parallelism --------------------------------------------------
+
+# 0 or 1 = serial (single working directory).
+# >=2 = each rank gets its own {calib_dir}_mpi/core{N}/ working copy.
+# Set this to match your `mpirun -c <N>` value.
+mpi_cores: 0

@@ -108,31 +108,14 @@ def test_build_dbname_starts_with_timestamp(monkeypatch):
 
 
 def test_cli_builds_minimal_config(tmp_path: Path):
+    """With only the required flags, optional fields fall back to
+    CalibrationConfig dataclass defaults via _build_config_from_args."""
+    from pwa_calibration.runner import _build_config_from_args
     parser = _build_arg_parser()
     args = parser.parse_args(
-        [
-            "results",
-            "--model-name",
-            "grassmere",
-            "--calib-dir",
-            str(tmp_path),
-        ]
+        ["results", "--model-name", "grassmere", "--calib-dir", str(tmp_path)],
     )
-    cfg = CalibrationConfig(
-        model_name=args.model_name,
-        calib_dir=args.calib_dir,
-        obj_fn=args.obj_fn,
-        eval_start_yr=args.eval_start_yr,
-        eval_end_yr=args.eval_end_yr,
-        spring_eval=not args.no_spring_eval,
-        low_seep=args.low_seep,
-        routing=args.routing,
-        dep_scaling=args.dep_scaling,
-        runoff_scaling=args.runoff_scaling,
-        channel_scaling=args.channel_scaling,
-        phydap_adj=not args.no_phydap_adj,
-        mpi_cores=args.mpi_cores,
-    )
+    cfg = _build_config_from_args(args)
     assert cfg.model_name == "grassmere"
     assert cfg.calib_dir == tmp_path
     assert cfg.obj_fn == "kge_adj"  # default
@@ -142,24 +125,18 @@ def test_cli_builds_minimal_config(tmp_path: Path):
 
 
 def test_cli_full_flag_set(tmp_path: Path):
+    from pwa_calibration.runner import _build_config_from_args
     parser = _build_arg_parser()
     args = parser.parse_args(
         [
             "calib_run",
-            "--model-name",
-            "manning",
-            "--calib-dir",
-            str(tmp_path),
-            "--obj-fn",
-            "nse_pbias",
-            "--eval-start-yr",
-            "2003",
-            "--eval-end-yr",
-            "2021",
-            "--mpi-cores",
-            "14",
-            "--repetitions",
-            "100",
+            "--model-name", "manning",
+            "--calib-dir", str(tmp_path),
+            "--obj-fn", "nse_pbias",
+            "--eval-start-yr", "2003",
+            "--eval-end-yr", "2021",
+            "--mpi-cores", "14",
+            "--repetitions", "100",
             "--no-spring-eval",
             "--low-seep",
             "--routing",
@@ -169,21 +146,7 @@ def test_cli_full_flag_set(tmp_path: Path):
             "--no-phydap-adj",
         ]
     )
-    cfg = CalibrationConfig(
-        model_name=args.model_name,
-        calib_dir=args.calib_dir,
-        obj_fn=args.obj_fn,
-        eval_start_yr=args.eval_start_yr,
-        eval_end_yr=args.eval_end_yr,
-        spring_eval=not args.no_spring_eval,
-        low_seep=args.low_seep,
-        routing=args.routing,
-        dep_scaling=args.dep_scaling,
-        runoff_scaling=args.runoff_scaling,
-        channel_scaling=args.channel_scaling,
-        phydap_adj=not args.no_phydap_adj,
-        mpi_cores=args.mpi_cores,
-    )
+    cfg = _build_config_from_args(args)
     assert cfg.obj_fn == "nse_pbias"
     assert cfg.eval_start_yr == 2003
     assert cfg.eval_end_yr == 2021
@@ -338,3 +301,64 @@ def test_run_calibration_skips_prepare_when_staging_none(monkeypatch, tmp_path: 
     run_calibration(cfg, repetitions=1, db_suffix="x")  # no staging arg
 
     assert called["prepare"] == 0
+
+
+# ---------------------------------------------------------------------------
+# CLI --config flag (YAML-driven config + per-field overrides)
+# ---------------------------------------------------------------------------
+
+
+from pwa_calibration.runner import _build_config_from_args
+
+
+def _write_yaml_config(path: Path, **overrides) -> Path:
+    cfg = CalibrationConfig(
+        model_name=overrides.pop("model_name", "yamlbase"),
+        calib_dir=overrides.pop("calib_dir", path.parent / "yamlbase"),
+        **overrides,
+    )
+    return cfg.to_yaml(path)
+
+
+def test_cli_accepts_config_yaml_with_no_per_field_flags(tmp_path: Path):
+    yml = _write_yaml_config(
+        tmp_path / "calibration.yml",
+        obj_fn="nse_pbias",
+        eval_start_yr=2003,
+    )
+    parser = _build_arg_parser()
+    args = parser.parse_args(["x", "--config", str(yml)])
+    cfg = _build_config_from_args(args)
+    assert cfg.model_name == "yamlbase"
+    assert cfg.obj_fn == "nse_pbias"
+    assert cfg.eval_start_yr == 2003
+
+
+def test_cli_per_field_flag_overrides_yaml(tmp_path: Path):
+    """Explicit CLI flag wins over the YAML value."""
+    yml = _write_yaml_config(tmp_path / "calibration.yml", obj_fn="nse_pbias")
+    parser = _build_arg_parser()
+    args = parser.parse_args([
+        "x",
+        "--config", str(yml),
+        "--obj-fn", "nse",  # override
+    ])
+    cfg = _build_config_from_args(args)
+    assert cfg.obj_fn == "nse"
+
+
+def test_cli_boolean_flag_overrides_yaml(tmp_path: Path):
+    """A store_true flag flips the YAML False to True. (No --no-X — to
+    flip True → False, edit the YAML.)"""
+    yml = _write_yaml_config(tmp_path / "calibration.yml")  # routing default False
+    parser = _build_arg_parser()
+    args = parser.parse_args(["x", "--config", str(yml), "--routing"])
+    cfg = _build_config_from_args(args)
+    assert cfg.routing is True
+
+
+def test_cli_without_config_or_required_fields_exits(tmp_path: Path):
+    parser = _build_arg_parser()
+    args = parser.parse_args(["x"])  # no --config, no --model-name, no --calib-dir
+    with pytest.raises(SystemExit):
+        _build_config_from_args(args)

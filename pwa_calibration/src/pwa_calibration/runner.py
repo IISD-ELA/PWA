@@ -213,20 +213,36 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help="Trailing portion of the SPOTPY dbname (timestamp prepended).",
     )
     parser.add_argument(
+        "--config",
+        type=Path,
+        default=None,
+        help=(
+            "Path to a calibration.yml file (see "
+            "'python -m pwa_calibration.init_config'). When given, the "
+            "config fields are read from this file and the per-field CLI "
+            "flags below become unnecessary (per-field flags still "
+            "override the YAML when both are present)."
+        ),
+    )
+    parser.add_argument(
         "--model-name",
-        required=True,
-        help="Watershed/model name (used for input-file naming).",
+        help=(
+            "Watershed/model name (used for input-file naming). "
+            "Required unless --config provides it."
+        ),
     )
     parser.add_argument(
         "--calib-dir",
-        required=True,
         type=Path,
-        help="Calibration root directory (contains input/, output/, templates/).",
+        help=(
+            "Calibration root directory (contains input/, output/, templates/). "
+            "Required unless --config provides it."
+        ),
     )
-    parser.add_argument("--obj-fn", default="kge_adj", choices=["kge_adj", "nse", "nse_pbias"])
-    parser.add_argument("--eval-start-yr", type=int, default=1995)
-    parser.add_argument("--eval-end-yr", type=int, default=2010)
-    parser.add_argument("--mpi-cores", type=int, default=0)
+    parser.add_argument("--obj-fn", default=None, choices=["kge_adj", "nse", "nse_pbias"])
+    parser.add_argument("--eval-start-yr", type=int, default=None)
+    parser.add_argument("--eval-end-yr", type=int, default=None)
+    parser.add_argument("--mpi-cores", type=int, default=None)
     parser.add_argument("--repetitions", type=int, default=10)
     parser.add_argument("--no-spring-eval", action="store_true")
     parser.add_argument("--low-seep", action="store_true")
@@ -263,6 +279,60 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _build_config_from_args(args: argparse.Namespace) -> CalibrationConfig:
+    """Merge ``--config <yaml>`` (if any) with per-field CLI overrides.
+
+    Per-field flags take precedence over YAML values when both are
+    present — explicit user input wins. Boolean toggles use a "store_true"
+    pattern, so they only override when the user actually passed the flag.
+    """
+    if args.config is not None:
+        base_dict = CalibrationConfig.from_yaml(args.config).to_dict()
+    else:
+        # All required-field validation lives in CalibrationConfig — let
+        # it raise if model_name / calib_dir are missing.
+        if not args.model_name or args.calib_dir is None:
+            raise SystemExit(
+                "--model-name and --calib-dir are required unless --config "
+                "is provided."
+            )
+        base_dict = {}
+
+    overrides: dict = {}
+    if args.model_name is not None:
+        overrides["model_name"] = args.model_name
+    if args.calib_dir is not None:
+        overrides["calib_dir"] = args.calib_dir
+    if args.obj_fn is not None:
+        overrides["obj_fn"] = args.obj_fn
+    if args.eval_start_yr is not None:
+        overrides["eval_start_yr"] = args.eval_start_yr
+    if args.eval_end_yr is not None:
+        overrides["eval_end_yr"] = args.eval_end_yr
+    if args.mpi_cores is not None:
+        overrides["mpi_cores"] = args.mpi_cores
+    # Boolean store_true flags: only override when set (you can't undo a
+    # YAML True with a CLI flag — there's no --no-routing). To turn a
+    # toggle off, edit the YAML.
+    if args.no_spring_eval:
+        overrides["spring_eval"] = False
+    if args.low_seep:
+        overrides["low_seep"] = True
+    if args.routing:
+        overrides["routing"] = True
+    if args.dep_scaling:
+        overrides["dep_scaling"] = True
+    if args.runoff_scaling:
+        overrides["runoff_scaling"] = True
+    if args.channel_scaling:
+        overrides["channel_scaling"] = True
+    if args.no_phydap_adj:
+        overrides["phydap_adj"] = False
+
+    merged = {**base_dict, **overrides}
+    return CalibrationConfig.from_dict(merged)
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     parser = _build_arg_parser()
     args = parser.parse_args(argv)
@@ -278,29 +348,16 @@ def main(argv: Optional[list[str]] = None) -> int:
             "(or both omitted to skip staging)."
         )
 
+    config = _build_config_from_args(args)
+
     staging: Optional[StagingPaths] = None
     if args.stage_from is not None:
         staging = StagingPaths(
-            watershed_name=args.model_name,
+            watershed_name=config.model_name,
             data_root=args.stage_from,
             netcdf_category=args.netcdf_category,
         )
 
-    config = CalibrationConfig(
-        model_name=args.model_name,
-        calib_dir=args.calib_dir,
-        obj_fn=args.obj_fn,
-        eval_start_yr=args.eval_start_yr,
-        eval_end_yr=args.eval_end_yr,
-        spring_eval=not args.no_spring_eval,
-        low_seep=args.low_seep,
-        routing=args.routing,
-        dep_scaling=args.dep_scaling,
-        runoff_scaling=args.runoff_scaling,
-        channel_scaling=args.channel_scaling,
-        phydap_adj=not args.no_phydap_adj,
-        mpi_cores=args.mpi_cores,
-    )
     run_calibration(
         config=config,
         repetitions=args.repetitions,

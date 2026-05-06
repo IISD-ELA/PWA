@@ -269,6 +269,95 @@ class CalibrationConfig:
                 "and re-run."
             )
 
+    # ---- serialization ----------------------------------------------------
+
+    def to_dict(self) -> dict:
+        """Serialize back to the same dict shape :meth:`from_dict` consumes.
+
+        Round-trip property: ``CalibrationConfig.from_dict(c.to_dict()) == c``.
+        Path is rendered as a string so the dict is YAML-safe.
+        """
+        return {
+            "model_name": self.model_name,
+            "calib_dir": str(self.calib_dir),
+            "obj_fn": self.obj_fn,
+            "eval_start_yr": self.eval_start_yr,
+            "eval_end_yr": self.eval_end_yr,
+            "spring_eval": self.spring_eval,
+            "low_seep": self.low_seep,
+            "routing": self.routing,
+            "dep_scaling": self.dep_scaling,
+            "runoff_scaling": self.runoff_scaling,
+            "channel_scaling": self.channel_scaling,
+            "phydap_adj": self.phydap_adj,
+            "split_areas": self.split_areas,
+            "mpi_cores": self.mpi_cores,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "CalibrationConfig":
+        """Build from a plain dict — used by tests, programmatic callers,
+        and as the intermediate step inside :meth:`from_yaml`.
+
+        Required keys: ``model_name``, ``calib_dir``. Everything else
+        falls back to the dataclass defaults if absent.
+        """
+        try:
+            model_name = data["model_name"]
+            calib_dir = data["calib_dir"]
+        except KeyError as exc:
+            raise ValueError(
+                f"CalibrationConfig requires both 'model_name' and "
+                f"'calib_dir'; missing {exc.args[0]!r}."
+            ) from exc
+
+        # Allow None / missing optionals to fall back to dataclass defaults.
+        defaults = cls(model_name=model_name, calib_dir=calib_dir)
+        return cls(
+            model_name=model_name,
+            calib_dir=calib_dir,
+            obj_fn=data.get("obj_fn", defaults.obj_fn),
+            eval_start_yr=data.get("eval_start_yr", defaults.eval_start_yr),
+            eval_end_yr=data.get("eval_end_yr", defaults.eval_end_yr),
+            spring_eval=data.get("spring_eval", defaults.spring_eval),
+            low_seep=data.get("low_seep", defaults.low_seep),
+            routing=data.get("routing", defaults.routing),
+            dep_scaling=data.get("dep_scaling", defaults.dep_scaling),
+            runoff_scaling=data.get("runoff_scaling", defaults.runoff_scaling),
+            channel_scaling=data.get("channel_scaling", defaults.channel_scaling),
+            phydap_adj=data.get("phydap_adj", defaults.phydap_adj),
+            split_areas=data.get("split_areas", defaults.split_areas),
+            mpi_cores=data.get("mpi_cores", defaults.mpi_cores),
+        )
+
+    def to_yaml(self, path: Path | str) -> Path:
+        """Write this config to *path* as YAML. Returns the resolved path.
+
+        Output is human-readable: keys preserved in insertion order, no
+        Python tags. Parent directory is created if needed.
+        """
+        import yaml  # local import keeps module-level deps light
+
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            yaml.safe_dump(
+                self.to_dict(),
+                sort_keys=False,
+                default_flow_style=False,
+            )
+        )
+        return path
+
+    @classmethod
+    def from_yaml(cls, config_path: Path | str) -> "CalibrationConfig":
+        """Load configuration from a YAML file."""
+        import yaml  # local import keeps module-level deps light
+
+        with open(config_path) as f:
+            data = yaml.safe_load(f)
+        return cls.from_dict(data)
+
 
 # ---------------------------------------------------------------------------
 # Input-file loading helpers

@@ -14,6 +14,7 @@ dependencies = [
     "geopandas>=0.14",
     "spotpy>=1.6",
     "netCDF4>=1.6",
+    "pyyaml>=6.0",
     "pwa-raven",
 ]
 # mpi4py is required for parallel calibration but is left as an optional
