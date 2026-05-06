@@ -1,0 +1,72 @@
+# Example configuration for the PWA Step 2 pipeline
+# (Raven .rv* file generation + calibration templates).
+#
+# Copy to step2.yml and edit, OR generate one interactively:
+#     python -m pwa_raven.init_step2_config step2.yml
+#
+# Then run (programmatically):
+#     from pwa_raven.step2 import Step2Config, run_step2
+#     run_step2(Step2Config.from_yaml("step2.yml"))
+
+# ---- Required ----------------------------------------------------------
+
+# Watershed / model name.
+watershed_name: grassmere
+
+# Root output directory. Step 2 outputs land at:
+#     {output_dir}/Raven/Processed/{watershed_name}.rvi (etc.)
+#     {output_dir}/Raven/Processed/templates/...
+#     {output_dir}/Raven/Processed/input/...
+output_dir: ./Data
+
+# Watershed subbasins shapefile — Step 0 output. Must include columns:
+#   BasArea, BkfDepth, BkfWidth, RivLength, RivSlope, MeanElev,
+#   BasAspect, BasSlope, Has_POI, Lake_Cat, DowSubId, Q_Mean,
+#   Deps_Depth, centroid_x, centroid_y, DrainArea, FloodP_n, Ch_n.
+subbasins_shapefile: ./Data/grassmere/HydroConditioning/Processed/CLRH_basins_depression_depths.shp
+
+# Step 1 output — the time-shifted PHyDAP NetCDF.
+phydap_nc: ./Data/grassmere/Runoff/Processed/grassmere_runoff_adj.nc
+
+# WSC streamgauge metadata + daily-discharge CSVs.
+wsc_metadata_csv: ./Data/grassmere/Raven/Raw/metadata_05NF002.csv
+wsc_daily_csv: ./Data/grassmere/Raven/Raw/daily_05NF002.csv
+
+# ---- Hydrological parameters ------------------------------------------
+
+# NRCS TR-55 curve number for time-of-concentration calculation.
+# 63 was the Manning-watershed value from the original notebook;
+# adjust per-watershed.
+curve_number: 63.0
+
+# ---- Simulation window -------------------------------------------------
+
+# User-requested model start/end. Resolved as the intersect with the
+# NetCDF time-axis range and the WSC daily-discharge date range — the
+# tightest window wins.
+user_start: "1990-01-01 00:00:00"
+user_end:   "2019-12-30 00:00:00"
+
+# ---- Static .rvp/.rvc parameters --------------------------------------
+
+# Average annual runoff for the global :AvgAnnualRunoff line in .rvp.
+avg_annual_runoff_mm: 75.0
+
+# Initial soil-storage condition for the .rvc.
+initial_soil_storage_mm: 15.0
+
+# ---- Outputs ----------------------------------------------------------
+
+# Generate calibration templates (.rvh.tpl, .rvp.tpl, channel.rvp.tpl)
+# + HRU_areas.csv + tp_tc.csv. Required if you plan to run Step 3
+# calibration with pwa_calibration.
+write_calibration_templates: true
+
+# Compute per-basin aspect ratios → aspect_ratios.csv. Consumed by the
+# SPOTPY calibration setup. Note: see project-review/client-questions.md
+# Q-004 — values from the new (correct) algorithm differ from the
+# legacy notebook output.
+write_aspect_ratios: true
+
+# NetCDF variable name referenced by the .rvt GriddedForcing block.
+forcing_var_name: runoff
