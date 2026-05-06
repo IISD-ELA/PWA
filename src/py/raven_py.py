@@ -478,7 +478,7 @@ class RavenHydrograph:
                 break
         return runoff
     
-def index_to_date(index, start_date="2003-01-01 00:00:00", freq="H"):
+def index_to_date(index, start_date="1985-01-01 00:00:00", freq="H"):
     """
     Convert a zero-based index to a datetime object based on a given start date and frequency.
     """
@@ -487,7 +487,7 @@ def index_to_date(index, start_date="2003-01-01 00:00:00", freq="H"):
 
     if freq.lower() == 'h':
         return start + pd.to_timedelta(index, unit=freq[0].lower())
-    elif freq.to_lower() == '3h':
+    elif freq.lower() == '3h':
         return start + pd.to_timedelta(index * 3, unit='h')
     else:
         raise ValueError("Unsupported frequency. Use 'H' for hourly or '3H' for 3-hourly.")

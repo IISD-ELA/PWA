@@ -6,7 +6,7 @@ library(lubridate)
 library(CSHShydRology)
 library(hydroEvents)
 
-data_dir = "Data/Cypress_New/freq/"
+data_dir = "Data/grassmere/freq/"
 file_name = "wy_summary.csv"
 temp_path = paste0(data_dir, file_name)
 
@@ -246,7 +246,7 @@ return_period_lp3 <- function(Q_obs, fa) {
   }
   
   # Compute nonexceedance probability (CDF)
-  FQ <- cdfpe3(Q_trans, distPar$para)   # lmomco function for Pearson III
+  FQ <- cdfpe3(Q_trans, distPar)   # lmomco function for Pearson III
   
   # Return period = 1 / exceedance probability
   TQ <- 1 / (1 - FQ)
@@ -267,7 +267,7 @@ print(rp_df)
 standard_rps <- c(2, 5, 10)
 standard_cdfs <- 1-(1/standard_rps)
 dist_quantiles <- function(cdfs){
-    log_val = quape3(cdfs, fa$distribution$parameters$para)
+    log_val = quape3(cdfs, fa$distribution$parameters)
     return(10^log_val)
 }
 
