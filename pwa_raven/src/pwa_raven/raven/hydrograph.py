@@ -3,14 +3,15 @@
 Replaces ``read_rv_diag``, ``RavenHydrograph``, ``index_to_date``, and
 ``plot_timeseries`` from ``raven_py.py`` (lines 263-511).
 
-Fixes:
-  - BUG-003: ``index_to_date()`` called ``freq.to_lower()`` — Python strings
-    have no ``.to_lower()`` method. Fixed to ``.lower()``.
-  - BUG-004: ``read_sim()``, ``read_obs()``, ``read_runoff()`` left the return
-    variable unassigned if no matching column was found, crashing with
-    ``UnboundLocalError``. Now raises ``ValueError`` with a clear message.
-  - ``.replace('\\\\', '/')`` path workarounds → ``pathlib.Path``
-  - ``plot_timeseries`` uses lazy matplotlib import
+Behavioural improvements over the original:
+  - ``index_to_date()`` previously called ``freq.to_lower()`` (which is
+    not a string method) — fixed to ``.lower()``.
+  - ``read_sim()``, ``read_obs()``, and ``read_runoff()`` now raise
+    ``ValueError`` with a clear message when no matching column is
+    found. The original left the return variable unassigned and
+    crashed with ``UnboundLocalError``.
+  - ``.replace('\\\\', '/')`` path workarounds → ``pathlib.Path``.
+  - ``plot_timeseries`` uses lazy matplotlib import.
 """
 
 from __future__ import annotations
@@ -123,8 +124,8 @@ class RavenHydrograph:
         Raises
         ------
         ValueError
-            **BUG-004 fix**: if no matching column is found, raises instead of
-            crashing with ``UnboundLocalError``.
+            If no column matches *subbasin_id*. The original raised
+            ``UnboundLocalError`` instead, which obscured the real problem.
         """
         self.eval = self._filter_eval(start_yr, end_yr, spring_only, refresh)
 
@@ -149,7 +150,8 @@ class RavenHydrograph:
         Raises
         ------
         ValueError
-            **BUG-004 fix**: if no ``observed`` column is found.
+            If no ``observed`` column is found. The original raised
+            ``UnboundLocalError`` instead.
         """
         self.eval = self._filter_eval(start_yr, end_yr, spring_only, refresh)
 
@@ -194,7 +196,8 @@ class RavenHydrograph:
         Raises
         ------
         ValueError
-            **BUG-004 fix**: if no ``precip`` column is found.
+            If no ``precip`` column is found. The original raised
+            ``UnboundLocalError`` instead.
         """
         self.eval = self._filter_eval(start_yr, end_yr, spring_only, refresh)
 
@@ -215,14 +218,15 @@ def index_to_date(
 ):
     """Convert a zero-based index to a datetime based on start date and frequency.
 
-    BUG-003 fix: original had ``freq.to_lower()`` — Python strings have no
-    ``.to_lower()`` method. Changed to ``.lower()``.
+    Note: the original implementation called ``freq.to_lower()``, which is
+    not a string method (only ``.lower()`` exists). Reaching the ``elif``
+    branch — for example with ``freq='3H'`` — crashed the call.
     """
     start = pd.to_datetime(start_date)
 
     if freq.lower() == "h":
         return start + pd.to_timedelta(index, unit="h")
-    elif freq.lower() == "3h":  # BUG-003: was freq.to_lower()
+    elif freq.lower() == "3h":  # was freq.to_lower() in the original
         return start + pd.to_timedelta(index * 3, unit="h")
     else:
         raise ValueError(f"Unsupported frequency '{freq}'. Use 'H' or '3H'.")

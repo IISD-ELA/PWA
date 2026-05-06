@@ -11,12 +11,12 @@ This module:
   3. Fills NaN discharge values with Raven's missing-value sentinel ``-1.2345``.
   4. Writes the .rvt file.
 
-Bug fix (BUG-020): the original notebook had ``if wsc_null_start:`` *inside*
-the gap-formatting loop, so the entire gap-comment string was empty unless
-the series happened to start with NaN. The check is moved out: the
-``wsc_null_start`` / ``wsc_null_end`` flags affect only whether
-``user_start`` / ``user_end`` get prepended/appended to the gap list, not
-whether any gaps are reported.
+Behavioural improvement over the notebook: the original gated the entire
+gap-formatting loop on ``if wsc_null_start:``, so the gap-comment string
+came out empty unless the series happened to start with NaN. The check is
+now lifted out — the ``wsc_null_start`` / ``wsc_null_end`` flags affect
+only whether ``user_start`` / ``user_end`` get prepended/appended to the
+gap list, not whether any gaps are reported at all.
 """
 
 from __future__ import annotations
@@ -113,9 +113,10 @@ def format_gap_comment(gap_limits: pd.Series) -> str:
 
     Pairs adjacent timestamps as ``(start, end)`` of each gap.
 
-    BUG-020 fix: the original notebook gated the entire loop body on
-    ``wsc_null_start``, producing an empty string whenever the series
-    started with valid data. We now always emit a comment line per pair.
+    The original notebook gated the loop body on ``wsc_null_start``,
+    producing an empty string whenever the series started with valid
+    data. We now always emit a comment line per pair, regardless of
+    whether the series begins with NaN.
     """
     if len(gap_limits) == 0:
         return ""

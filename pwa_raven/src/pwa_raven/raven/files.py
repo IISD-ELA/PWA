@@ -2,13 +2,14 @@
 
 Replaces ``RavenFile`` class from ``raven_py.py`` (lines 41-259).
 
-Fixes:
-  - BUG-002: ``rvp_update()`` unconditionally accessed ``_param_vector["bedslope_mult"]``
-    even when ``channel_scaling=False``. Now guarded by a ``_channel_scale`` parameter.
-  - Deprecated ``clrh_split`` and ``phydap_split`` code paths removed (~120 lines of
-    dead code that only raised ValueError). ``_param_set`` now only accepts
-    ``"no_split"`` and ``"no_runoff_scale"``.
-  - ``.replace('\\\\', '/')`` path workarounds → ``pathlib.Path``
+Behavioural improvements over the original:
+  - ``rvp_update()`` previously accessed ``_param_vector["bedslope_mult"]``
+    unconditionally, raising ``KeyError`` when channel scaling was off.
+    Now guarded by an explicit ``_channel_scale`` parameter.
+  - Deprecated ``clrh_split`` and ``phydap_split`` code paths removed
+    (~120 lines of dead code that only raised ``ValueError``).
+    ``_param_set`` now only accepts ``"no_split"`` and ``"no_runoff_scale"``.
+  - ``.replace('\\\\', '/')`` path workarounds → ``pathlib.Path``.
 """
 
 from __future__ import annotations
@@ -78,7 +79,8 @@ class RavenFile:
             ``_dep_scale`` is True.
         _channel_scale
             If True, scale bedslope values using ``_param_vector["bedslope_mult"]``.
-            **BUG-002 fix**: was unconditionally accessed in the original.
+            The original accessed this key unconditionally, raising
+            ``KeyError`` whenever channel scaling was disabled.
         """
         if not self.filename.endswith(".rvp"):
             raise ValueError("Filename must end with .rvp extension.")
@@ -101,7 +103,8 @@ class RavenFile:
                 depth_value = dep_fact * base_depth
                 rvp_txt = rvp_txt.replace(f"s{subid}_dep", str(depth_value))
 
-        # BUG-002 fix: only access bedslope_mult when channel scaling is enabled
+        # Only touch bedslope_mult when channel scaling is enabled — the
+        # key may be absent from the parameter vector otherwise.
         if _channel_scale:
             bedslope_mult = _param_vector["bedslope_mult"]
 

@@ -2,10 +2,13 @@
 
 Replaces ``run_raven()`` from ``raven_py.py`` (lines 10-38).
 
-Fixes:
-  - BUG-007: ``Raven.exe`` hardcoded → platform-aware binary detection via
-    ``shutil.which``. Works on Windows (Raven.exe), macOS/Linux (Raven).
-  - ``subprocess.run`` now uses ``check=True``.
+Behavioural improvements over the original:
+  - Platform-aware binary detection via ``shutil.which`` — finds ``Raven``
+    (Linux/macOS) or ``Raven.exe`` (Windows) wherever it sits on PATH,
+    instead of hardcoding ``Raven.exe`` in the working directory.
+  - ``subprocess.run`` uses ``check=True`` so a non-zero exit surfaces
+    immediately rather than letting downstream steps process a missing
+    output file.
   - ``os.chdir`` already had try/finally in the original — preserved.
 """
 

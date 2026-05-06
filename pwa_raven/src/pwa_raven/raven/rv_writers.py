@@ -7,11 +7,13 @@ needs as keyword arguments, writes the file, returns the path. Templates
 are inlined as f-strings (no Jinja dependency) since the format is fixed
 and the placeholders are simple.
 
-Bug fix (BUG-021): cell 49 wrote the *last* channel-profile survey point's
-Y coordinate as ``elev[i] + bkfdepth_mod[i] + bkfdepth_mod[0] / 2`` —
-hardcoded ``[0]`` index where ``[i]`` was intended, so every channel
-profile after subbasin 0 had the wrong terminal survey-point elevation.
-Now uses ``bkfdepth_mod[i]`` consistently with the first survey point.
+Behavioural improvement over the notebook: cell 49 wrote the *last*
+channel-profile survey point's Y coordinate as
+``elev[i] + bkfdepth_mod[i] + bkfdepth_mod[0] / 2`` — a hardcoded
+``[0]`` index where ``[i]`` was intended, so every channel profile
+after subbasin 0 had the wrong terminal survey-point elevation. The
+writer now uses ``bkfdepth_mod[i]`` consistently with the first
+survey point.
 """
 
 from __future__ import annotations
@@ -412,10 +414,10 @@ def write_channel_rvp(
 ) -> Path:
     """Write ``channel_properties.rvp`` with a ChannelProfile block per subbasin.
 
-    BUG-021 fix: the original notebook used ``bkfdepth_mod[0]`` (basin 0)
-    instead of ``bkfdepth_mod[i]`` for the *last* survey point's Y
-    coordinate, applying basin 0's bankfull depth to every channel profile.
-    Now uses ``[i]`` consistently with the first survey point.
+    The original notebook used ``bkfdepth_mod[0]`` (basin 0) instead of
+    ``bkfdepth_mod[i]`` for the *last* survey point's Y coordinate,
+    applying basin 0's bankfull depth to every channel profile. The
+    writer now uses ``[i]`` consistently with the first survey point.
     """
     n = len(sub_ids)
     for label, lst in [
@@ -474,7 +476,7 @@ def write_channel_rvp(
             f"\n        {round(x5, 2): >5}  {round(elev, 2)}"
             f"\n        {round(x6, 2): >5}  {round(elev + bkf_depth, 2)}"
             f"\n        {round(x7, 2): >5}  {round(elev + bkf_depth, 2)}"
-            f"\n        {round(x8, 2): >5}  {round(elev + bkf_depth + (bkf_depth / 2), 2)}"  # BUG-021 fix: was bkfdepth_mod[0]
+            f"\n        {round(x8, 2): >5}  {round(elev + bkf_depth + (bkf_depth / 2), 2)}"  # use this basin's bkf_depth — original used bkfdepth_mod[0]
             f"\n    :EndSurveyPoints"
             f"\n    :RoughnessZones"
             f"\n        {0: >5} {round(floodplain_n[i], 6)}"

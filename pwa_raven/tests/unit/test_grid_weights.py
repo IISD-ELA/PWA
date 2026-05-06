@@ -65,15 +65,20 @@ def test_mapping_all_inside(phydap_2x2, hybas_map_full):
     assert by_sub.loc[1, "HYBAS_ID"] == 1001
     assert by_sub.loc[2, "HYBAS_ID"] == 1003
     assert by_sub.loc[3, "HYBAS_ID"] == 1004
-    # grid_idx populated from hybas_map (BUG-019 regression)
+    # grid_idx populated from hybas_map regardless of whether any
+    # centroids fall outside PHyDAP — the notebook only set this column
+    # inside the missing-centroid branch.
     assert by_sub.loc[1, "grid_idx"] == 0
     assert by_sub.loc[2, "grid_idx"] == 2
     assert by_sub.loc[3, "grid_idx"] == 3
 
 
 def test_mapping_all_inside_no_kerror_in_writer(phydap_2x2, hybas_map_full, tmp_path):
-    """BUG-019 regression: original notebook crashed in file writer when no
-    centroids fell outside PHyDAP, because grid_idx was never merged in."""
+    """When every subbasin centroid falls inside PHyDAP coverage, the
+    writer must still find a grid_idx column. The original notebook only
+    merged hybas_map inside the ``if missing > 0`` branch, so the
+    happy path produced a frame missing grid_idx and the file writer
+    raised KeyError downstream."""
     subbasins = gpd.GeoDataFrame(
         [_subbasin_at((0.5, 0.5), 1)],
         crs="EPSG:4326",

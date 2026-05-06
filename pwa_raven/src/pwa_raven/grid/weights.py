@@ -6,11 +6,12 @@ Maps watershed sub-basins to PHyDAP forcing-grid cells (1:1 weights, since each
 sub-basin's representative point falls inside exactly one PHyDAP polygon — or is
 assigned to the nearest one when it falls outside the PHyDAP coverage area).
 
-Bug fix (BUG-019): the original notebook only merged ``hybas_map`` into
-``mapping_df`` inside the ``if len(missing) > 0:`` branch. When every
-sub-basin centroid landed inside a PHyDAP polygon, the resulting frame was
-missing the ``grid_idx`` column and the file writer raised KeyError. We now
-merge unconditionally.
+Behavioural improvement over the notebook: the original only merged
+``hybas_map`` into ``mapping_df`` inside the ``if len(missing) > 0:``
+branch. When every sub-basin centroid landed inside a PHyDAP polygon
+(no missing rows), the resulting frame lacked the ``grid_idx`` column
+and the file writer raised ``KeyError``. The merge is now
+unconditional, so both code paths produce a consistent schema.
 """
 
 from __future__ import annotations

@@ -4,26 +4,29 @@ Refactored from ``PWA/src/py/setup_spotpy.py`` (the ``spot_setup_rvn`` class).
 
 What changed during extraction
 ------------------------------
-* **BUG-005 fix** (rank drift): the original incremented ``self.rank``
-  on every ``simulation()`` call. Removed — rank is now a constant
-  attribute of the worker, set once in ``__init__``. A separate
-  ``_call_count`` counter is used for diagnostic logging.
-* **BUG-006 fix** (NC template undef): the original used a bare
-  ``for`` loop without ``else`` to find the template, then referenced
-  ``filename`` outside the loop — when no match was found you got a
-  ``NameError``. Now uses :func:`_find_nc_template` which raises
-  ``FileNotFoundError`` with a clear message.
-* **BUG-013 fix** (Windows-only paths): all the ``calib_dir + "\\input\\..."``
-  literals are now ``Path(calib_dir) / "input" / ...``.
-* **BUG-015 fix** (unchecked ``robust_copy``): all calls now raise
-  ``IOError`` on failure instead of silently moving on.
+* **MPI rank stability**: the original incremented ``self.rank`` on
+  every ``simulation()`` call, eventually overrunning ``self.cores``
+  and indexing past ``core_paths``. Rank is now a constant attribute
+  set once in ``__init__``; a separate ``_call_count`` counter handles
+  diagnostic logging.
+* **NetCDF template lookup**: the original used a bare ``for`` loop
+  to find the template and referenced ``filename`` outside the loop
+  body — when no match was found this raised ``NameError``. Now uses
+  :func:`_find_nc_template` which raises ``FileNotFoundError`` with a
+  clear message.
+* **Cross-platform paths**: all ``calib_dir + "\\input\\..."`` string
+  concatenation (Windows-only on Linux/macOS) is now
+  ``Path(calib_dir) / "input" / ...``.
+* **Robust file copy**: ``robust_copy`` now raises ``IOError`` on
+  failure instead of returning ``False`` and being ignored by every
+  call site.
 * **Deprecated splits removed**: ``split_areas`` no longer accepts
-  ``"clrh"`` or ``"phydap"``. Both branches in the original just raised
-  ``ValueError`` after a deprecation print — kept the error, removed
-  the dead commented-out parameter lists.
+  ``"clrh"`` or ``"phydap"``. Both branches in the original just
+  raised ``ValueError`` after a deprecation print — kept the error,
+  removed the dead commented-out parameter lists.
 * **Eval window is configurable**: the original hardcoded
-  ``start_yr=1995, end_yr=2010`` inside ``simulation()``. Now passed in
-  via :class:`CalibrationConfig`.
+  ``start_yr=1995, end_yr=2010`` inside ``simulation()``. Now passed
+  in via :class:`CalibrationConfig`.
 * **Inputs are pathlib**: ``calib_dir`` is normalized to a ``Path`` once.
 * **Watershed name removed from setup**: replaced by the explicit
   ``model_name`` (already a parameter — just promoted to required and
@@ -81,9 +84,9 @@ def robust_copy(
 ) -> None:
     """Copy with checksum verification and exponential-backoff retries.
 
-    BUG-015 fix: original returned ``True``/``False`` and the caller
-    silently ignored failure. Now raises ``IOError`` after exhausting
-    retries — calibration cannot proceed with a corrupt input file.
+    Raises ``IOError`` after exhausting retries. The original returned
+    ``True``/``False`` and every call site ignored the result, so a
+    failed copy silently corrupted downstream calibration runs.
     """
     source_path = Path(source_path)
     destination_path = Path(destination_path)
@@ -113,9 +116,9 @@ _NC_TEMPLATE_SUFFIXES = ("_tpl.nc", "_template.nc")
 def _find_nc_template(inputs_path: Path) -> Path:
     """Locate the PhyDAP NetCDF template in *inputs_path*.
 
-    BUG-006 fix: original used a bare ``for`` loop and would crash with
-    ``NameError`` if no match was found. Now raises
-    ``FileNotFoundError`` with a useful message.
+    Raises ``FileNotFoundError`` with the expected suffixes when no
+    match is found. The original used a bare ``for`` loop and crashed
+    with ``NameError`` on the post-loop ``filename`` reference instead.
     """
     for filename in sorted(os.listdir(inputs_path)):
         if filename.endswith(_NC_TEMPLATE_SUFFIXES):
@@ -288,8 +291,9 @@ def load_calibration_inputs(config: CalibrationConfig) -> CalibrationInputs:
     """Load all input CSVs / shapefile from ``config.input_dir``.
 
     Replaces the inline file-loading section of ``spot_setup_rvn.__init__``.
-    All ``calib_dir + "\\input\\..."`` literals → ``Path`` operations
-    (BUG-013 fix).
+    All path joins go through ``Path``, so the legacy
+    ``calib_dir + "\\input\\..."`` Windows-only string concatenation
+    works on macOS and Linux too.
     """
     input_dir = config.input_dir
     model_name = config.model_name
@@ -363,8 +367,8 @@ def build_param_distributions(config: CalibrationConfig) -> tuple[list, str]:
 def _stage_worker_directory(source: Path, destination: Path) -> None:
     """Copy *source* tree into *destination* using ``robust_copy`` for files.
 
-    Mirrors the original two-level loop but using pathlib + raising on
-    copy failure (BUG-015).
+    Mirrors the original two-level loop but uses pathlib throughout and
+    propagates copy failures via ``IOError`` (the original swallowed them).
     """
     destination.mkdir(parents=True, exist_ok=True)
     for entry in source.iterdir():

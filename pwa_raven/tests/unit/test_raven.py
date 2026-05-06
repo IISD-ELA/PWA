@@ -1,7 +1,11 @@
 """Tests for pwa_raven.raven — files, runner, and hydrograph modules.
 
-Covers the 4 bug fixes (BUG-002, BUG-003, BUG-004, BUG-007) and core
-template substitution logic.
+Covers core template-substitution logic plus the four behavioural fixes
+in this submodule:
+  * rvp_update no longer crashes when channel scaling is off
+  * index_to_date handles 3-hour frequency strings
+  * RavenHydrograph readers raise ValueError on missing columns
+  * run_raven finds the binary via PATH on every platform
 """
 
 from __future__ import annotations
@@ -49,7 +53,9 @@ def test_rvp_update_substitutes_params(tmp_path: Path) -> None:
 
 
 def test_rvp_update_without_channel_scale(tmp_path: Path) -> None:
-    """BUG-002 fix: no crash when _channel_scale=False and bedslope_mult missing."""
+    """When channel_scale=False, the bedslope_mult key may legitimately be
+    absent from the parameter vector. The original raised KeyError; the
+    refactor short-circuits the access. This pins the no-crash behaviour."""
     rf = _setup_rvp_tpl(tmp_path)
     params = {"seep_k": 0.05, "dep_fact": 1.0}  # NO bedslope_mult key
 
@@ -68,7 +74,7 @@ def test_rvp_update_rejects_bad_param_set(tmp_path: Path) -> None:
         rf.rvp_update("clrh_split", _dep_scale=False, _param_vector={"seep_k": 0.01})
 
 
-# ============ index_to_date — BUG-003 fix ============
+# ============ index_to_date ============
 
 
 def test_index_to_date_hourly() -> None:
@@ -77,7 +83,9 @@ def test_index_to_date_hourly() -> None:
 
 
 def test_index_to_date_3hourly() -> None:
-    """BUG-003: original had freq.to_lower() which crashes. Fixed to .lower()."""
+    """The 3-hourly branch must not crash. The original called the
+    nonexistent ``freq.to_lower()`` method and threw ``AttributeError``
+    the moment the 3H path was taken."""
     result = index_to_date(8, start_date="2003-01-01 00:00:00", freq="3H")
     assert result == pd.Timestamp("2003-01-02 00:00:00")
 
@@ -87,7 +95,7 @@ def test_index_to_date_bad_freq() -> None:
         index_to_date(1, freq="D")
 
 
-# ============ RavenHydrograph — BUG-004 fixes ============
+# ============ RavenHydrograph ============
 
 
 def _mock_hydrograph_csv(tmp_path: Path, run_id: str = "") -> Path:
@@ -115,7 +123,8 @@ def test_read_sim_returns_series(tmp_path: Path) -> None:
 
 
 def test_read_sim_raises_on_missing_column(tmp_path: Path) -> None:
-    """BUG-004 fix: ValueError instead of UnboundLocalError."""
+    """Missing column → clear ValueError. The original left ``simulated``
+    unassigned and crashed with ``UnboundLocalError``."""
     rv_path = _mock_hydrograph_csv(tmp_path)
     rh = RavenHydrograph(rv_path)
     with pytest.raises(ValueError, match="No simulated column"):
@@ -130,7 +139,7 @@ def test_read_obs_returns_series(tmp_path: Path) -> None:
 
 
 def test_read_obs_raises_on_missing_column(tmp_path: Path) -> None:
-    """BUG-004 fix for observed column."""
+    """Same missing-column → ValueError contract for the observed series."""
     output_dir = tmp_path / "output"
     output_dir.mkdir(parents=True)
     # Need 48+ hours so there are 2 noon timestamps (noon check passes before column check)
@@ -149,7 +158,7 @@ def test_read_obs_raises_on_missing_column(tmp_path: Path) -> None:
 
 
 def test_read_runoff_raises_on_missing_column(tmp_path: Path) -> None:
-    """BUG-004 fix for runoff/precip column."""
+    """Same missing-column → ValueError contract for the precip series."""
     output_dir = tmp_path / "output"
     output_dir.mkdir(parents=True)
     dates = pd.date_range("2005-01-01", periods=24, freq="h")
@@ -166,7 +175,7 @@ def test_read_runoff_raises_on_missing_column(tmp_path: Path) -> None:
         rh.read_runoff(start_yr=2005, end_yr=2005, spring_only=False)
 
 
-# ============ run_raven — BUG-007 fix ============
+# ============ run_raven — binary detection ============
 
 
 def test_find_raven_binary_with_mock() -> None:
@@ -182,7 +191,9 @@ def test_find_raven_binary_windows_fallback() -> None:
 
 
 def test_find_raven_binary_missing() -> None:
-    """BUG-007 fix: clear error message when neither name is found."""
+    """When neither ``Raven`` nor ``Raven.exe`` is on PATH, raise a clear
+    FileNotFoundError pointing at the install instructions instead of
+    silently invoking a nonexistent binary."""
     with patch("shutil.which", return_value=None):
         with pytest.raises(FileNotFoundError, match="Raven binary not found"):
             _find_raven_binary()

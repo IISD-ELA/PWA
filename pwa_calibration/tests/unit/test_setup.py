@@ -2,8 +2,8 @@
 
 Cover the testable surfaces:
 * :func:`calculate_checksum`
-* :func:`robust_copy` — including the BUG-015 raise-on-failure behavior
-* :func:`_find_nc_template` — including BUG-006 raise-on-missing
+* :func:`robust_copy` — including raise-on-failure (the original swallowed it)
+* :func:`_find_nc_template` — including raise-on-missing-template
 * :func:`_adj_path_from_template`
 * :func:`_round_sig`
 * :class:`CalibrationConfig` validation
@@ -56,7 +56,9 @@ def test_robust_copy_succeeds(tmp_path: Path):
 
 
 def test_robust_copy_raises_when_source_missing(tmp_path: Path):
-    """BUG-015 regression: failed copy must raise, not silently return."""
+    """A failed copy must raise IOError; the original returned False and
+    every call site discarded the return value, silently corrupting
+    downstream calibration runs."""
     src = tmp_path / "missing.txt"
     dst = tmp_path / "dst.txt"
     with pytest.raises(IOError, match="Failed to copy"):
@@ -64,7 +66,7 @@ def test_robust_copy_raises_when_source_missing(tmp_path: Path):
 
 
 # ---------------------------------------------------------------------------
-# NC template lookup (BUG-006 regression)
+# NC template lookup
 # ---------------------------------------------------------------------------
 
 
@@ -83,7 +85,9 @@ def test_find_nc_template_picks_template_suffix(tmp_path: Path):
 
 
 def test_find_nc_template_raises_when_missing(tmp_path: Path):
-    """BUG-006 regression: missing template → FileNotFoundError, not NameError."""
+    """A missing template raises FileNotFoundError. The original used a
+    bare ``for`` loop and crashed with NameError on a post-loop reference
+    to ``filename`` instead."""
     (tmp_path / "no_match.nc").touch()
     with pytest.raises(FileNotFoundError, match="No NetCDF template"):
         _find_nc_template(tmp_path)
@@ -215,7 +219,9 @@ def test_load_calibration_inputs_round_trip(tmp_path: Path):
 
 
 def test_load_calibration_inputs_uses_pathlib_not_backslashes(tmp_path: Path):
-    """BUG-013 regression: macOS/Linux must accept the input dir."""
+    """The loader must work on macOS/Linux. The original built paths
+    with literal backslashes (``calib_dir + "\\input\\..."``) which
+    became filenames with backslashes on POSIX systems."""
     _write_calibration_fixture(tmp_path, model_name="cross_platform")
     cfg = CalibrationConfig(model_name="cross_platform", calib_dir=tmp_path)
     inputs = load_calibration_inputs(cfg)

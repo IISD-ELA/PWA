@@ -184,12 +184,14 @@ def test_write_rvh_rejects_mismatched_lengths(tmp_path: Path, rvh_inputs):
 
 
 # ---------------------------------------------------------------------------
-# Channel RVP — including BUG-021 regression
+# Channel RVP — last survey point must use this basin's bkf_depth
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
 def channel_inputs():
-    """Two subbasins with DIFFERENT bankfull depths so BUG-021 is detectable."""
+    """Two subbasins with DIFFERENT bankfull depths so any cross-basin
+    contamination (notebook bug applied basin 0's depth to all profiles)
+    shows up as a numeric mismatch."""
     return dict(
         sub_ids=[101, 102],
         basin_area_km2=[1.5, 4.2],
@@ -215,10 +217,15 @@ def test_write_channel_rvp_emits_one_profile_per_basin(tmp_path: Path, channel_i
 def test_write_channel_rvp_first_and_last_survey_points_match_per_basin(
     tmp_path: Path, channel_inputs,
 ):
-    """BUG-021 regression: last survey point Y must use this basin's bkf_depth,
-    not basin 0's. With distinct bkf_depths [1.5, 4.0] and elevations [100, 200]:
+    """Each basin's :SurveyPoints block must terminate with that same
+    basin's bkf_depth. The original notebook hardcoded ``bkfdepth_mod[0]``
+    for the last point, so every channel profile inherited basin 0's
+    depth.
+
+    With distinct bkf_depths [1.5, 4.0] and elevations [100, 200]:
       basin 0: first/last Y = 100 + 1.5 + 0.75 = 102.25
-      basin 1: first/last Y = 200 + 4.0 + 2.0  = 206.0   (would be 206 + buggy 0.75 = 206.75 with bug)
+      basin 1: first/last Y = 200 + 4.0 + 2.0  = 206.0
+                              (would be 206 + 0.75 = 206.75 with the bug)
     """
     out = write_channel_rvp(tmp_path, watershed_name="x", **channel_inputs)
     content = out.read_text()

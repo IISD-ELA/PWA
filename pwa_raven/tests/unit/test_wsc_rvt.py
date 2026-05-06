@@ -106,14 +106,16 @@ def test_find_data_gap_limits_appends_user_end_when_series_ends_nan():
     assert result.iloc[-1] == pd.Timestamp(MODEL_END)
 
 
+
 # ---------------------------------------------------------------------------
-# format_gap_comment (BUG-020 regression)
+# format_gap_comment
 # ---------------------------------------------------------------------------
 
 def test_format_gap_comment_emits_pairs_when_series_starts_with_data():
-    """BUG-020: notebook gated the loop on wsc_null_start, so a series with
-    valid first/last values produced an empty comment string even when
-    multi-day gaps existed in the middle."""
+    """Gap comments must be emitted regardless of whether the series
+    starts with NaN. The notebook gated the loop on ``wsc_null_start``,
+    so a series with valid first/last values produced an empty comment
+    string even when multi-day gaps existed in the middle."""
     gap_limits = pd.Series([pd.Timestamp("2010-01-10"), pd.Timestamp("2010-01-15")])
     out = format_gap_comment(gap_limits)
     assert "Missing data period 1" in out
