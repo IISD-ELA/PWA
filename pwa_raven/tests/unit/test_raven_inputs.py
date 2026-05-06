@@ -1,8 +1,8 @@
-"""Unit tests for pwa_raven.step2 — Step2Config + run_step2.
+"""Unit tests for pwa_raven.raven_inputs — RavenInputsConfig + run_raven_inputs.
 
-The e2e fixture builds a synthetic subbasins shapefile + Step-1-shaped
-NetCDF + WSC metadata + WSC daily CSV with enough columns to satisfy
-prepare_basin_attributes and the .rvh writer.
+The e2e fixture builds a synthetic subbasins shapefile + nc_processing-
+shaped NetCDF + WSC metadata + WSC daily CSV with enough columns to
+satisfy prepare_basin_attributes and the .rvh writer.
 """
 
 from __future__ import annotations
@@ -16,11 +16,11 @@ import pytest
 from netCDF4 import Dataset
 from shapely.geometry import Polygon
 
-from pwa_raven.step2 import Step2Config, Step2Result, run_step2
+from pwa_raven.raven_inputs import RavenInputsConfig, RavenInputsResult, run_raven_inputs
 
 
 # ---------------------------------------------------------------------------
-# Step2Config — construction + validation
+# RavenInputsConfig — construction + validation
 # ---------------------------------------------------------------------------
 
 
@@ -36,7 +36,7 @@ def _minimal_config_kwargs(tmp_path: Path) -> dict:
 
 
 def test_config_normalizes_paths(tmp_path: Path):
-    cfg = Step2Config(**{
+    cfg = RavenInputsConfig(**{
         k: str(v) if isinstance(v, Path) else v
         for k, v in _minimal_config_kwargs(tmp_path).items()
     })
@@ -45,13 +45,13 @@ def test_config_normalizes_paths(tmp_path: Path):
 
 
 def test_config_is_frozen(tmp_path: Path):
-    cfg = Step2Config(**_minimal_config_kwargs(tmp_path))
+    cfg = RavenInputsConfig(**_minimal_config_kwargs(tmp_path))
     with pytest.raises(Exception):  # FrozenInstanceError
         cfg.watershed_name = "renamed"  # type: ignore[misc]
 
 
 def test_config_derived_paths(tmp_path: Path):
-    cfg = Step2Config(**_minimal_config_kwargs(tmp_path))
+    cfg = RavenInputsConfig(**_minimal_config_kwargs(tmp_path))
     assert cfg.processed_dir == tmp_path / "out" / "Raven" / "Processed"
     assert cfg.templates_dir == cfg.processed_dir / "templates"
     assert cfg.input_dir == cfg.processed_dir / "input"
@@ -60,7 +60,7 @@ def test_config_derived_paths(tmp_path: Path):
 
 
 def test_config_safe_name_strips_spaces(tmp_path: Path):
-    cfg = Step2Config(
+    cfg = RavenInputsConfig(
         **{**_minimal_config_kwargs(tmp_path), "watershed_name": "Long Name Here"}
     )
     assert cfg.safe_name == "LongNameHere"
@@ -73,7 +73,7 @@ def test_config_safe_name_strips_spaces(tmp_path: Path):
 
 
 def test_expected_input_files_lists_four(tmp_path: Path):
-    cfg = Step2Config(**_minimal_config_kwargs(tmp_path))
+    cfg = RavenInputsConfig(**_minimal_config_kwargs(tmp_path))
     files = cfg.expected_input_files()
     assert {p.name for p in files} == {
         "subbasins.shp", "adj.nc", "metadata.csv", "daily.csv",
@@ -81,14 +81,14 @@ def test_expected_input_files_lists_four(tmp_path: Path):
 
 
 def test_validate_inputs_exist_passes_when_all_present(tmp_path: Path):
-    cfg = Step2Config(**_minimal_config_kwargs(tmp_path))
+    cfg = RavenInputsConfig(**_minimal_config_kwargs(tmp_path))
     for p in cfg.expected_input_files():
         p.touch()
     cfg.validate_inputs_exist()
 
 
 def test_validate_inputs_exist_raises_listing_all_missing(tmp_path: Path):
-    cfg = Step2Config(**_minimal_config_kwargs(tmp_path))
+    cfg = RavenInputsConfig(**_minimal_config_kwargs(tmp_path))
     cfg.phydap_nc.touch()
     with pytest.raises(FileNotFoundError) as exc:
         cfg.validate_inputs_exist()
@@ -104,7 +104,7 @@ def test_validate_inputs_exist_raises_listing_all_missing(tmp_path: Path):
 
 
 def test_to_dict_round_trip(tmp_path: Path):
-    cfg = Step2Config(
+    cfg = RavenInputsConfig(
         **_minimal_config_kwargs(tmp_path),
         curve_number=70.0,
         user_start="2003-01-01 00:00:00",
@@ -112,12 +112,12 @@ def test_to_dict_round_trip(tmp_path: Path):
         write_calibration_templates=False,
         write_aspect_ratios=False,
     )
-    rebuilt = Step2Config.from_dict(cfg.to_dict())
+    rebuilt = RavenInputsConfig.from_dict(cfg.to_dict())
     assert rebuilt == cfg
 
 
 def test_from_dict_minimal_uses_defaults(tmp_path: Path):
-    cfg = Step2Config.from_dict({
+    cfg = RavenInputsConfig.from_dict({
         "watershed_name": "manning",
         "output_dir": str(tmp_path),
         "subbasins_shapefile": str(tmp_path / "s.shp"),
@@ -132,22 +132,22 @@ def test_from_dict_minimal_uses_defaults(tmp_path: Path):
 
 def test_from_dict_rejects_missing_required(tmp_path: Path):
     with pytest.raises(ValueError, match="missing"):
-        Step2Config.from_dict({
+        RavenInputsConfig.from_dict({
             "watershed_name": "x",
             "output_dir": str(tmp_path),
         })
 
 
 def test_to_yaml_round_trip(tmp_path: Path):
-    cfg = Step2Config(**_minimal_config_kwargs(tmp_path))
-    out = tmp_path / "step2.yml"
+    cfg = RavenInputsConfig(**_minimal_config_kwargs(tmp_path))
+    out = tmp_path / "raven_inputs.yml"
     cfg.to_yaml(out)
-    rebuilt = Step2Config.from_yaml(out)
+    rebuilt = RavenInputsConfig.from_yaml(out)
     assert rebuilt == cfg
 
 
 # ---------------------------------------------------------------------------
-# run_step2 — end-to-end
+# run_raven_inputs — end-to-end
 # ---------------------------------------------------------------------------
 
 
@@ -225,7 +225,7 @@ def _build_wsc_daily_csv(path: Path) -> None:
 
 
 @pytest.fixture
-def synthetic_step2_inputs(tmp_path: Path) -> dict:
+def synthetic_raven_inputs(tmp_path: Path) -> dict:
     sub_path = tmp_path / "subbasins.shp"
     nc_path = tmp_path / "adj.nc"
     meta_path = tmp_path / "metadata.csv"
@@ -245,25 +245,25 @@ def synthetic_step2_inputs(tmp_path: Path) -> dict:
     }
 
 
-def _e2e_config(synthetic_step2_inputs: dict, **overrides) -> Step2Config:
-    """Build a Step2Config with a model window that matches the synthetic NC."""
-    return Step2Config(
+def _e2e_config(synthetic_raven_inputs: dict, **overrides) -> RavenInputsConfig:
+    """Build a RavenInputsConfig with a model window that matches the synthetic NC."""
+    return RavenInputsConfig(
         watershed_name="testwater",
         # Both NC and WSC start 2010-01-01. Use a wide user window so the
         # NC + WSC ranges become the binding constraints (per
         # resolve_model_window's intersect rule).
         user_start="2000-01-01 00:00:00",
         user_end="2025-12-31 00:00:00",
-        **synthetic_step2_inputs,
+        **synthetic_raven_inputs,
         **overrides,
     )
 
 
-def test_run_step2_writes_all_required_files(synthetic_step2_inputs: dict):
-    cfg = _e2e_config(synthetic_step2_inputs)
-    result = run_step2(cfg)
+def test_run_raven_inputs_writes_all_required_files(synthetic_raven_inputs: dict):
+    cfg = _e2e_config(synthetic_raven_inputs)
+    result = run_raven_inputs(cfg)
 
-    assert isinstance(result, Step2Result)
+    assert isinstance(result, RavenInputsResult)
     for path in (
         result.rvi, result.rvc, result.rvp, result.rvh, result.model_rvt,
         result.channel_rvp, result.wsc_rvt, result.wsc_outlet_txt,
@@ -271,9 +271,9 @@ def test_run_step2_writes_all_required_files(synthetic_step2_inputs: dict):
         assert path.is_file(), f"missing required output: {path}"
 
 
-def test_run_step2_writes_optional_files_by_default(synthetic_step2_inputs: dict):
-    cfg = _e2e_config(synthetic_step2_inputs)
-    result = run_step2(cfg)
+def test_run_raven_inputs_writes_optional_files_by_default(synthetic_raven_inputs: dict):
+    cfg = _e2e_config(synthetic_raven_inputs)
+    result = run_raven_inputs(cfg)
     for path in (
         result.rvh_template, result.rvp_template, result.channel_rvp_template,
         result.hru_areas_csv, result.tp_tc_csv, result.aspect_ratios_csv,
@@ -281,11 +281,11 @@ def test_run_step2_writes_optional_files_by_default(synthetic_step2_inputs: dict
         assert path is not None and path.is_file()
 
 
-def test_run_step2_skips_calibration_templates_when_disabled(
-    synthetic_step2_inputs: dict,
+def test_run_raven_inputs_skips_calibration_templates_when_disabled(
+    synthetic_raven_inputs: dict,
 ):
-    cfg = _e2e_config(synthetic_step2_inputs, write_calibration_templates=False)
-    result = run_step2(cfg)
+    cfg = _e2e_config(synthetic_raven_inputs, write_calibration_templates=False)
+    result = run_raven_inputs(cfg)
     assert result.rvh_template is None
     assert result.rvp_template is None
     assert result.channel_rvp_template is None
@@ -295,34 +295,34 @@ def test_run_step2_skips_calibration_templates_when_disabled(
     assert not cfg.templates_dir.exists()
 
 
-def test_run_step2_skips_aspect_ratios_when_disabled(synthetic_step2_inputs: dict):
-    cfg = _e2e_config(synthetic_step2_inputs, write_aspect_ratios=False)
-    result = run_step2(cfg)
+def test_run_raven_inputs_skips_aspect_ratios_when_disabled(synthetic_raven_inputs: dict):
+    cfg = _e2e_config(synthetic_raven_inputs, write_aspect_ratios=False)
+    result = run_raven_inputs(cfg)
     assert result.aspect_ratios_csv is None
 
 
-def test_run_step2_writes_outlet_subid_to_text(synthetic_step2_inputs: dict):
-    cfg = _e2e_config(synthetic_step2_inputs)
-    result = run_step2(cfg)
+def test_run_raven_inputs_writes_outlet_subid_to_text(synthetic_raven_inputs: dict):
+    cfg = _e2e_config(synthetic_raven_inputs)
+    result = run_raven_inputs(cfg)
     # Outlet is SUB_3 (the only Has_POI=1 row in the synthetic fixture)
     assert result.wsc_outlet_txt.read_text().strip() == "3"
 
 
-def test_run_step2_wsc_rvt_filename_uses_station_id(synthetic_step2_inputs: dict):
-    cfg = _e2e_config(synthetic_step2_inputs)
-    result = run_step2(cfg)
+def test_run_raven_inputs_wsc_rvt_filename_uses_station_id(synthetic_raven_inputs: dict):
+    cfg = _e2e_config(synthetic_raven_inputs)
+    result = run_raven_inputs(cfg)
     assert result.wsc_rvt.name == "WSC05NF002.rvt"
 
 
-def test_run_step2_rvi_includes_watershed_name(synthetic_step2_inputs: dict):
-    cfg = _e2e_config(synthetic_step2_inputs)
-    result = run_step2(cfg)
+def test_run_raven_inputs_rvi_includes_watershed_name(synthetic_raven_inputs: dict):
+    cfg = _e2e_config(synthetic_raven_inputs)
+    result = run_raven_inputs(cfg)
     assert "testwater" in result.rvi.read_text()
 
 
-def test_run_step2_validates_inputs_first(tmp_path: Path):
+def test_run_raven_inputs_validates_inputs_first(tmp_path: Path):
     """Missing inputs raise before any output is created."""
-    cfg = Step2Config(
+    cfg = RavenInputsConfig(
         watershed_name="x",
         output_dir=tmp_path / "out",
         subbasins_shapefile=tmp_path / "missing.shp",
@@ -331,5 +331,5 @@ def test_run_step2_validates_inputs_first(tmp_path: Path):
         wsc_daily_csv=tmp_path / "missing_d.csv",
     )
     with pytest.raises(FileNotFoundError, match="missing"):
-        run_step2(cfg)
+        run_raven_inputs(cfg)
     assert not (tmp_path / "out").exists()

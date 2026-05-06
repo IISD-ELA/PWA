@@ -1,12 +1,15 @@
-# Example configuration for the PWA Step 2 pipeline
-# (Raven .rv* file generation + calibration templates).
+# Example configuration for the PWA Raven inputs pipeline
+# (.rv* file generation + calibration templates).
 #
-# Copy to step2.yml and edit, OR generate one interactively:
-#     python -m pwa_raven.init_step2_config step2.yml
+# Copy to raven_inputs.yml and edit, OR generate one interactively:
+#     python -m pwa_raven.init_raven_inputs_config raven_inputs.yml
 #
-# Then run (programmatically):
-#     from pwa_raven.step2 import Step2Config, run_step2
-#     run_step2(Step2Config.from_yaml("step2.yml"))
+# Then run from the shell:
+#     python -m pwa_raven.run_raven_inputs --config raven_inputs.yml
+#
+# Or programmatically:
+#     from pwa_raven.raven_inputs import RavenInputsConfig, run_raven_inputs
+#     run_raven_inputs(RavenInputsConfig.from_yaml("raven_inputs.yml"))
 
 # ---- Required ----------------------------------------------------------
 

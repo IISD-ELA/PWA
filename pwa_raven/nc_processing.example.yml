@@ -1,12 +1,15 @@
-# Example configuration for the PWA Step 1 pipeline
-# (PHyDAP NetCDF subset + GridWeights + time-offset).
+# Example configuration for the PWA NetCDF processing pipeline
+# (PHyDAP subset + GridWeights + time-offset).
 #
-# Copy to step1.yml and edit, OR generate one interactively:
-#     python -m pwa_raven.init_step1_config step1.yml
+# Copy to nc_processing.yml and edit, OR generate one interactively:
+#     python -m pwa_raven.init_nc_processing_config nc_processing.yml
 #
-# Then run (programmatically):
-#     from pwa_raven.step1 import Step1Config, run_step1
-#     run_step1(Step1Config.from_yaml("step1.yml"))
+# Then run from the shell:
+#     python -m pwa_raven.run_nc_processing --config nc_processing.yml
+#
+# Or programmatically:
+#     from pwa_raven.nc_processing import NcProcessingConfig, run_nc_processing
+#     run_nc_processing(NcProcessingConfig.from_yaml("nc_processing.yml"))
 
 # ---- Required ----------------------------------------------------------
 

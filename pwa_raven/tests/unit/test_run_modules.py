@@ -1,8 +1,8 @@
-"""Tests for the pwa_raven.run_step1 / run_step2 CLI wrappers.
+"""Tests for the pwa_raven.run_nc_processing / run_raven_inputs CLI wrappers.
 
 These wrappers are intentionally thin (parse args → load config → call
-the existing run_step* function → print summary). The Step1Config /
-Step2Config / run_step* unit tests cover the heavy lifting; here we
+the existing run_step* function → print summary). The NcProcessingConfig /
+RavenInputsConfig / run_step* unit tests cover the heavy lifting; here we
 verify the wrapper behaviour:
 
 * ``--config`` defaults to ``./step{1,2}.yml`` and errors with a
@@ -19,10 +19,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from pwa_raven.run_step1 import _build_arg_parser as _step1_parser
-from pwa_raven.run_step1 import main as step1_main
-from pwa_raven.run_step2 import _build_arg_parser as _step2_parser
-from pwa_raven.run_step2 import main as step2_main
+from pwa_raven.run_nc_processing import _build_arg_parser as _nc_processing_parser
+from pwa_raven.run_nc_processing import main as nc_processing_main
+from pwa_raven.run_raven_inputs import _build_arg_parser as _raven_inputs_parser
+from pwa_raven.run_raven_inputs import main as raven_inputs_main
 
 
 # ---------------------------------------------------------------------------
@@ -32,18 +32,18 @@ from pwa_raven.run_step2 import main as step2_main
 # ---------------------------------------------------------------------------
 
 
-def test_step1_runner_reexports_callable():
-    from pwa_raven import run_step1 as runner_mod
-    from pwa_raven.step1 import run_step1 as step1_mod_callable
+def test_nc_runner_reexports_callable():
+    from pwa_raven import run_nc_processing as runner_mod
+    from pwa_raven.nc_processing import run_nc_processing as nc_mod_callable
 
-    assert runner_mod.run_step1 is step1_mod_callable
+    assert runner_mod.run_nc_processing is nc_mod_callable
 
 
-def test_step2_runner_reexports_callable():
-    from pwa_raven import run_step2 as runner_mod
-    from pwa_raven.step2 import run_step2 as step2_mod_callable
+def test_raven_inputs_runner_reexports_callable():
+    from pwa_raven import run_raven_inputs as runner_mod
+    from pwa_raven.raven_inputs import run_raven_inputs as raven_inputs_mod_callable
 
-    assert runner_mod.run_step2 is step2_mod_callable
+    assert runner_mod.run_raven_inputs is raven_inputs_mod_callable
 
 
 # ---------------------------------------------------------------------------
@@ -51,20 +51,20 @@ def test_step2_runner_reexports_callable():
 # ---------------------------------------------------------------------------
 
 
-def test_step1_parser_default_config_path(tmp_path: Path):
-    args = _step1_parser().parse_args([])
-    assert args.config == Path("step1.yml")
+def test_nc_processing_parser_default_config_path(tmp_path: Path):
+    args = _nc_processing_parser().parse_args([])
+    assert args.config == Path("nc_processing.yml")
     assert args.log_level == "INFO"
 
 
-def test_step2_parser_default_config_path(tmp_path: Path):
-    args = _step2_parser().parse_args([])
-    assert args.config == Path("step2.yml")
+def test_raven_inputs_parser_default_config_path(tmp_path: Path):
+    args = _raven_inputs_parser().parse_args([])
+    assert args.config == Path("raven_inputs.yml")
     assert args.log_level == "INFO"
 
 
-def test_step1_parser_accepts_log_level(tmp_path: Path):
-    args = _step1_parser().parse_args(["--log-level", "DEBUG"])
+def test_nc_processing_parser_accepts_log_level(tmp_path: Path):
+    args = _nc_processing_parser().parse_args(["--log-level", "DEBUG"])
     assert args.log_level == "DEBUG"
 
 
@@ -73,40 +73,40 @@ def test_step1_parser_accepts_log_level(tmp_path: Path):
 # ---------------------------------------------------------------------------
 
 
-def test_step1_main_returns_1_when_config_missing(tmp_path: Path, capsys):
-    rc = step1_main(["--config", str(tmp_path / "doesnt_exist.yml")])
+def test_nc_processing_main_returns_1_when_config_missing(tmp_path: Path, capsys):
+    rc = nc_processing_main(["--config", str(tmp_path / "doesnt_exist.yml")])
     assert rc == 1
     err = capsys.readouterr().err
     assert "Config file not found" in err
-    assert "init_step1_config" in err   # points the user at the generator
+    assert "init_nc_processing_config" in err   # points the user at the generator
 
 
-def test_step2_main_returns_1_when_config_missing(tmp_path: Path, capsys):
-    rc = step2_main(["--config", str(tmp_path / "doesnt_exist.yml")])
+def test_raven_inputs_main_returns_1_when_config_missing(tmp_path: Path, capsys):
+    rc = raven_inputs_main(["--config", str(tmp_path / "doesnt_exist.yml")])
     assert rc == 1
     err = capsys.readouterr().err
     assert "Config file not found" in err
-    assert "init_step2_config" in err
+    assert "init_raven_inputs_config" in err
 
 
 # ---------------------------------------------------------------------------
 # Happy-path CLI invocation (with run_step* mocked — we already have e2e
-# tests for the real runners in test_step1.py / test_step2.py).
+# tests for the real runners in test_nc_processing.py / test_raven_inputs.py).
 # ---------------------------------------------------------------------------
 
 
-def test_step1_main_loads_config_and_calls_run_step1(monkeypatch, tmp_path: Path, capsys):
-    from pwa_raven.step1 import Step1Config
+def test_nc_processing_main_loads_config_and_calls_run_nc_processing(monkeypatch, tmp_path: Path, capsys):
+    from pwa_raven.nc_processing import NcProcessingConfig
 
     # Build a real config + write it to YAML.
-    cfg = Step1Config(
+    cfg = NcProcessingConfig(
         watershed_name="testwater",
         output_dir=tmp_path / "out",
         phydap_nc=tmp_path / "phydap.nc",
         phydap_shapefile=tmp_path / "phydap.shp",
         subbasins_shapefile=tmp_path / "subbasins.shp",
     )
-    yml = tmp_path / "step1.yml"
+    yml = tmp_path / "nc_processing.yml"
     cfg.to_yaml(yml)
 
     fake_result = MagicMock(
@@ -116,9 +116,9 @@ def test_step1_main_loads_config_and_calls_run_step1(monkeypatch, tmp_path: Path
         grid_weights=tmp_path / "GridWeights.txt",
     )
     fake_run = MagicMock(return_value=fake_result)
-    monkeypatch.setattr("pwa_raven.run_step1.run_step1", fake_run)
+    monkeypatch.setattr("pwa_raven.run_nc_processing.run_nc_processing", fake_run)
 
-    rc = step1_main(["--config", str(yml)])
+    rc = nc_processing_main(["--config", str(yml)])
     assert rc == 0
 
     fake_run.assert_called_once()
@@ -130,10 +130,10 @@ def test_step1_main_loads_config_and_calls_run_step1(monkeypatch, tmp_path: Path
     assert "GridWeights.txt" in out
 
 
-def test_step2_main_loads_config_and_calls_run_step2(monkeypatch, tmp_path: Path, capsys):
-    from pwa_raven.step2 import Step2Config
+def test_raven_inputs_main_loads_config_and_calls_run_raven_inputs(monkeypatch, tmp_path: Path, capsys):
+    from pwa_raven.raven_inputs import RavenInputsConfig
 
-    cfg = Step2Config(
+    cfg = RavenInputsConfig(
         watershed_name="testwater",
         output_dir=tmp_path / "out",
         subbasins_shapefile=tmp_path / "s.shp",
@@ -141,7 +141,7 @@ def test_step2_main_loads_config_and_calls_run_step2(monkeypatch, tmp_path: Path
         wsc_metadata_csv=tmp_path / "m.csv",
         wsc_daily_csv=tmp_path / "d.csv",
     )
-    yml = tmp_path / "step2.yml"
+    yml = tmp_path / "raven_inputs.yml"
     cfg.to_yaml(yml)
 
     fake_result = MagicMock(
@@ -161,9 +161,9 @@ def test_step2_main_loads_config_and_calls_run_step2(monkeypatch, tmp_path: Path
         aspect_ratios_csv=None,
     )
     fake_run = MagicMock(return_value=fake_result)
-    monkeypatch.setattr("pwa_raven.run_step2.run_step2", fake_run)
+    monkeypatch.setattr("pwa_raven.run_raven_inputs.run_raven_inputs", fake_run)
 
-    rc = step2_main(["--config", str(yml)])
+    rc = raven_inputs_main(["--config", str(yml)])
     assert rc == 0
 
     fake_run.assert_called_once()
@@ -175,15 +175,15 @@ def test_step2_main_loads_config_and_calls_run_step2(monkeypatch, tmp_path: Path
     assert "WSC.rvt" in out
 
 
-def test_step2_main_prints_optional_outputs_when_present(
+def test_raven_inputs_main_prints_optional_outputs_when_present(
     monkeypatch, tmp_path: Path, capsys,
 ):
-    """When run_step2 returns templates + aspect_ratios paths, the
+    """When run_raven_inputs returns templates + aspect_ratios paths, the
     summary should list them. Uses a populated MagicMock to verify the
     optional-output branch."""
-    from pwa_raven.step2 import Step2Config
+    from pwa_raven.raven_inputs import RavenInputsConfig
 
-    cfg = Step2Config(
+    cfg = RavenInputsConfig(
         watershed_name="testwater",
         output_dir=tmp_path / "out",
         subbasins_shapefile=tmp_path / "s.shp",
@@ -191,7 +191,7 @@ def test_step2_main_prints_optional_outputs_when_present(
         wsc_metadata_csv=tmp_path / "m.csv",
         wsc_daily_csv=tmp_path / "d.csv",
     )
-    yml = tmp_path / "step2.yml"
+    yml = tmp_path / "raven_inputs.yml"
     cfg.to_yaml(yml)
 
     fake_result = MagicMock(
@@ -211,9 +211,9 @@ def test_step2_main_prints_optional_outputs_when_present(
         aspect_ratios_csv=tmp_path / "aspect_ratios.csv",
     )
     fake_run = MagicMock(return_value=fake_result)
-    monkeypatch.setattr("pwa_raven.run_step2.run_step2", fake_run)
+    monkeypatch.setattr("pwa_raven.run_raven_inputs.run_raven_inputs", fake_run)
 
-    step2_main(["--config", str(yml)])
+    raven_inputs_main(["--config", str(yml)])
     out = capsys.readouterr().out
     assert "x.rvh.tpl" in out
     assert "aspect_ratios.csv" in out

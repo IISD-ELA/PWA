@@ -1,6 +1,6 @@
-"""Unit tests for pwa_raven.step1 — Step1Config + run_step1.
+"""Unit tests for pwa_raven.nc_processing — NcProcessingConfig + run_nc_processing.
 
-Config tests use plain paths in tmp_path. The run_step1 e2e test
+Config tests use plain paths in tmp_path. The run_nc_processing e2e test
 builds a tiny synthetic PHyDAP NetCDF + polygon shapefile + subbasin
 shapefile so we can exercise the full pipeline without external data.
 """
@@ -15,11 +15,11 @@ import pytest
 from netCDF4 import Dataset
 from shapely.geometry import Polygon
 
-from pwa_raven.step1 import Step1Config, Step1Result, run_step1
+from pwa_raven.nc_processing import NcProcessingConfig, NcProcessingResult, run_nc_processing
 
 
 # ---------------------------------------------------------------------------
-# Step1Config — construction + validation
+# NcProcessingConfig — construction + validation
 # ---------------------------------------------------------------------------
 
 
@@ -37,36 +37,36 @@ def test_config_normalizes_paths(tmp_path: Path):
     """String paths get coerced to Path."""
     kw = _minimal_config_kwargs(tmp_path)
     kw = {k: str(v) if isinstance(v, Path) else v for k, v in kw.items()}
-    cfg = Step1Config(**kw)
+    cfg = NcProcessingConfig(**kw)
     assert isinstance(cfg.output_dir, Path)
     assert isinstance(cfg.phydap_nc, Path)
 
 
 def test_config_rejects_unknown_data_category(tmp_path: Path):
     with pytest.raises(ValueError, match="Unsupported data_category"):
-        Step1Config(**_minimal_config_kwargs(tmp_path), data_category="Sleet")
+        NcProcessingConfig(**_minimal_config_kwargs(tmp_path), data_category="Sleet")
 
 
 def test_config_accepts_known_data_categories(tmp_path: Path):
     for cat in ("Runoff", "Snowmelt", "Rainfall"):
-        cfg = Step1Config(**_minimal_config_kwargs(tmp_path), data_category=cat)
+        cfg = NcProcessingConfig(**_minimal_config_kwargs(tmp_path), data_category=cat)
         assert cfg.data_category == cat
 
 
 def test_config_is_frozen(tmp_path: Path):
-    cfg = Step1Config(**_minimal_config_kwargs(tmp_path))
+    cfg = NcProcessingConfig(**_minimal_config_kwargs(tmp_path))
     with pytest.raises(Exception):  # FrozenInstanceError
         cfg.watershed_name = "renamed"  # type: ignore[misc]
 
 
 def test_config_default_subset_nc_name_uses_watershed_and_category(tmp_path: Path):
-    cfg = Step1Config(**_minimal_config_kwargs(tmp_path), data_category="Runoff")
+    cfg = NcProcessingConfig(**_minimal_config_kwargs(tmp_path), data_category="Runoff")
     assert cfg.subset_nc_path.name == "grassmere_runoff.nc"
     assert cfg.adjusted_nc_path.name == "grassmere_runoff_adj.nc"
 
 
 def test_config_explicit_output_nc_name_overrides(tmp_path: Path):
-    cfg = Step1Config(
+    cfg = NcProcessingConfig(
         **_minimal_config_kwargs(tmp_path),
         output_nc_name="custom_name.nc",
     )
@@ -75,7 +75,7 @@ def test_config_explicit_output_nc_name_overrides(tmp_path: Path):
 
 
 def test_config_processed_dir_uses_data_category(tmp_path: Path):
-    cfg = Step1Config(**_minimal_config_kwargs(tmp_path), data_category="Snowmelt")
+    cfg = NcProcessingConfig(**_minimal_config_kwargs(tmp_path), data_category="Snowmelt")
     assert cfg.processed_dir == tmp_path / "out" / "Snowmelt" / "Processed"
 
 
@@ -85,20 +85,20 @@ def test_config_processed_dir_uses_data_category(tmp_path: Path):
 
 
 def test_expected_input_files_lists_three(tmp_path: Path):
-    cfg = Step1Config(**_minimal_config_kwargs(tmp_path))
+    cfg = NcProcessingConfig(**_minimal_config_kwargs(tmp_path))
     files = cfg.expected_input_files()
     assert {p.name for p in files} == {"phydap.nc", "phydap.shp", "subbasins.shp"}
 
 
 def test_validate_inputs_exist_passes_when_all_present(tmp_path: Path):
-    cfg = Step1Config(**_minimal_config_kwargs(tmp_path))
+    cfg = NcProcessingConfig(**_minimal_config_kwargs(tmp_path))
     for p in cfg.expected_input_files():
         p.touch()
     cfg.validate_inputs_exist()  # should not raise
 
 
 def test_validate_inputs_exist_raises_listing_all_missing(tmp_path: Path):
-    cfg = Step1Config(**_minimal_config_kwargs(tmp_path))
+    cfg = NcProcessingConfig(**_minimal_config_kwargs(tmp_path))
     cfg.phydap_nc.touch()  # only one of three present
     with pytest.raises(FileNotFoundError) as exc:
         cfg.validate_inputs_exist()
@@ -114,7 +114,7 @@ def test_validate_inputs_exist_raises_listing_all_missing(tmp_path: Path):
 
 
 def test_to_dict_round_trip(tmp_path: Path):
-    original = Step1Config(
+    original = NcProcessingConfig(
         **_minimal_config_kwargs(tmp_path),
         data_category="Snowmelt",
         nc_variable="snow_water_eq",
@@ -123,12 +123,12 @@ def test_to_dict_round_trip(tmp_path: Path):
         time_offset_hours=6,
         lat_value=51.0,
     )
-    rebuilt = Step1Config.from_dict(original.to_dict())
+    rebuilt = NcProcessingConfig.from_dict(original.to_dict())
     assert rebuilt == original
 
 
 def test_from_dict_minimal_uses_defaults(tmp_path: Path):
-    cfg = Step1Config.from_dict({
+    cfg = NcProcessingConfig.from_dict({
         "watershed_name": "grassmere",
         "output_dir": str(tmp_path),
         "phydap_nc": str(tmp_path / "p.nc"),
@@ -142,7 +142,7 @@ def test_from_dict_minimal_uses_defaults(tmp_path: Path):
 
 def test_from_dict_rejects_missing_required(tmp_path: Path):
     with pytest.raises(ValueError, match="missing"):
-        Step1Config.from_dict({
+        NcProcessingConfig.from_dict({
             "watershed_name": "x",
             "output_dir": str(tmp_path),
             # missing the three required path fields
@@ -150,27 +150,27 @@ def test_from_dict_rejects_missing_required(tmp_path: Path):
 
 
 def test_to_yaml_round_trip(tmp_path: Path):
-    cfg = Step1Config(**_minimal_config_kwargs(tmp_path))
-    out = tmp_path / "step1.yml"
+    cfg = NcProcessingConfig(**_minimal_config_kwargs(tmp_path))
+    out = tmp_path / "nc_processing.yml"
     cfg.to_yaml(out)
-    rebuilt = Step1Config.from_yaml(out)
+    rebuilt = NcProcessingConfig.from_yaml(out)
     assert rebuilt == cfg
 
 
 def test_to_yaml_creates_parent_dir(tmp_path: Path):
-    cfg = Step1Config(**_minimal_config_kwargs(tmp_path))
-    out = tmp_path / "deeply" / "nested" / "step1.yml"
+    cfg = NcProcessingConfig(**_minimal_config_kwargs(tmp_path))
+    out = tmp_path / "deeply" / "nested" / "nc_processing.yml"
     cfg.to_yaml(out)
     assert out.is_file()
 
 
 # ---------------------------------------------------------------------------
-# run_step1 — end-to-end
+# run_nc_processing — end-to-end
 # ---------------------------------------------------------------------------
 
 
 @pytest.fixture
-def synthetic_step1_inputs(tmp_path: Path) -> dict:
+def synthetic_nc_inputs(tmp_path: Path) -> dict:
     """Build a tiny PHyDAP NetCDF + polygon shapefile + subbasin shapefile.
 
     Layout:
@@ -223,25 +223,25 @@ def synthetic_step1_inputs(tmp_path: Path) -> dict:
     }
 
 
-def test_run_step1_produces_all_four_outputs(synthetic_step1_inputs: dict):
-    cfg = Step1Config(
+def test_run_nc_processing_produces_all_four_outputs(synthetic_nc_inputs: dict):
+    cfg = NcProcessingConfig(
         watershed_name="testwater",
-        **synthetic_step1_inputs,
+        **synthetic_nc_inputs,
     )
-    result = run_step1(cfg)
+    result = run_nc_processing(cfg)
 
-    assert isinstance(result, Step1Result)
+    assert isinstance(result, NcProcessingResult)
     assert result.subset_nc.is_file()
     assert result.adjusted_nc.is_file()
     assert result.hybas_map.is_file()
     assert result.grid_weights.is_file()
 
 
-def test_run_step1_subset_nc_has_expected_basins(synthetic_step1_inputs: dict):
+def test_run_nc_processing_subset_nc_has_expected_basins(synthetic_nc_inputs: dict):
     """The subbasin overlaps PHyDAP cells 1002 + 1003, so the subsetted
     NetCDF should retain exactly those two basins along the lon dim."""
-    cfg = Step1Config(watershed_name="testwater", **synthetic_step1_inputs)
-    result = run_step1(cfg)
+    cfg = NcProcessingConfig(watershed_name="testwater", **synthetic_nc_inputs)
+    result = run_nc_processing(cfg)
 
     with Dataset(result.subset_nc) as ds:
         # The subsetted file uses 'lon' as the basin dimension (per
@@ -249,20 +249,20 @@ def test_run_step1_subset_nc_has_expected_basins(synthetic_step1_inputs: dict):
         assert ds.dimensions["lon"].size == 2
 
 
-def test_run_step1_grid_weights_includes_watershed_name(synthetic_step1_inputs: dict):
-    cfg = Step1Config(watershed_name="testwater", **synthetic_step1_inputs)
-    result = run_step1(cfg)
+def test_run_nc_processing_grid_weights_includes_watershed_name(synthetic_nc_inputs: dict):
+    cfg = NcProcessingConfig(watershed_name="testwater", **synthetic_nc_inputs)
+    result = run_nc_processing(cfg)
     assert "testwater" in result.grid_weights.read_text()
 
 
-def test_run_step1_adjusted_nc_time_is_offset(synthetic_step1_inputs: dict):
+def test_run_nc_processing_adjusted_nc_time_is_offset(synthetic_nc_inputs: dict):
     """The adjusted NetCDF's time variable equals subset_nc time minus offset."""
-    cfg = Step1Config(
+    cfg = NcProcessingConfig(
         watershed_name="testwater",
         time_offset_hours=10,
-        **synthetic_step1_inputs,
+        **synthetic_nc_inputs,
     )
-    result = run_step1(cfg)
+    result = run_nc_processing(cfg)
 
     with Dataset(result.subset_nc) as orig, Dataset(result.adjusted_nc) as adj:
         orig_time = orig.variables["time"][:]
@@ -270,18 +270,18 @@ def test_run_step1_adjusted_nc_time_is_offset(synthetic_step1_inputs: dict):
         np.testing.assert_allclose(adj_time, orig_time - 10)
 
 
-def test_run_step1_creates_processed_dir_if_absent(synthetic_step1_inputs: dict):
-    """run_step1 should mkdir parents=True on the processed output dir."""
-    out_dir = synthetic_step1_inputs["output_dir"]
+def test_run_nc_processing_creates_processed_dir_if_absent(synthetic_nc_inputs: dict):
+    """run_nc_processing should mkdir parents=True on the processed output dir."""
+    out_dir = synthetic_nc_inputs["output_dir"]
     assert not out_dir.exists()
-    cfg = Step1Config(watershed_name="testwater", **synthetic_step1_inputs)
-    run_step1(cfg)
+    cfg = NcProcessingConfig(watershed_name="testwater", **synthetic_nc_inputs)
+    run_nc_processing(cfg)
     assert (out_dir / "Runoff" / "Processed").is_dir()
 
 
-def test_run_step1_validates_inputs_first(tmp_path: Path):
-    """If inputs are missing, run_step1 raises before touching the FS."""
-    cfg = Step1Config(
+def test_run_nc_processing_validates_inputs_first(tmp_path: Path):
+    """If inputs are missing, run_nc_processing raises before touching the FS."""
+    cfg = NcProcessingConfig(
         watershed_name="testwater",
         output_dir=tmp_path / "out",
         phydap_nc=tmp_path / "doesnt_exist.nc",
@@ -289,6 +289,6 @@ def test_run_step1_validates_inputs_first(tmp_path: Path):
         subbasins_shapefile=tmp_path / "doesnt_exist.shp",
     )
     with pytest.raises(FileNotFoundError, match="missing"):
-        run_step1(cfg)
+        run_nc_processing(cfg)
     # No output dir created either — validation runs before mkdir
     assert not (tmp_path / "out").exists()
