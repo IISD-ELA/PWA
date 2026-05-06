@@ -222,3 +222,83 @@ def test_generate_wsc_rvt_end_to_end(tmp_path: Path):
     assert "\t1.5000\n" in content
     assert "\t-1.2345\n" in content    # NaN replaced with sentinel
     assert "\t2.5000\n" in content
+
+
+# ---------------------------------------------------------------------------
+# resolve_model_window
+# ---------------------------------------------------------------------------
+
+
+from datetime import datetime
+from pwa_raven.raven.wsc_rvt import resolve_model_window
+
+
+def test_resolve_model_window_user_only():
+    start, end = resolve_model_window(
+        user_start="2010-01-01", user_end="2015-12-31",
+    )
+    assert start == datetime(2010, 1, 1)
+    assert end == datetime(2015, 12, 31)
+
+
+def test_resolve_model_window_intersect_with_nc():
+    """NetCDF starts after user_start → resolved start = nc_start."""
+    start, end = resolve_model_window(
+        user_start="2000-01-01",
+        user_end="2020-12-31",
+        nc_dates=(datetime(2005, 1, 1), datetime(2018, 12, 31)),
+    )
+    assert start == datetime(2005, 1, 1)
+    assert end == datetime(2018, 12, 31)
+
+
+def test_resolve_model_window_intersect_with_wsc():
+    start, end = resolve_model_window(
+        user_start="2000-01-01",
+        user_end="2025-12-31",
+        wsc_dates=(datetime(2003, 6, 15), datetime(2019, 6, 15)),
+    )
+    assert start == datetime(2003, 6, 15)
+    assert end == datetime(2019, 6, 15)
+
+
+def test_resolve_model_window_intersect_with_both():
+    """Tightest window wins on both ends."""
+    start, end = resolve_model_window(
+        user_start="2000-01-01",
+        user_end="2025-12-31",
+        nc_dates=(datetime(2005, 1, 1), datetime(2020, 12, 31)),
+        wsc_dates=(datetime(2003, 1, 1), datetime(2018, 6, 30)),
+    )
+    assert start == datetime(2005, 1, 1)   # nc is tightest start
+    assert end == datetime(2018, 6, 30)    # wsc is tightest end
+
+
+def test_resolve_model_window_user_overrides_loose_sources():
+    """User can request a tighter window even when sources span longer."""
+    start, end = resolve_model_window(
+        user_start="2010-01-01",
+        user_end="2012-12-31",
+        nc_dates=(datetime(2000, 1, 1), datetime(2020, 12, 31)),
+        wsc_dates=(datetime(2000, 1, 1), datetime(2020, 12, 31)),
+    )
+    assert start == datetime(2010, 1, 1)
+    assert end == datetime(2012, 12, 31)
+
+
+def test_resolve_model_window_raises_on_empty_window():
+    with pytest.raises(ValueError, match="empty"):
+        resolve_model_window(
+            user_start="2020-01-01",
+            user_end="2025-12-31",
+            nc_dates=(datetime(2000, 1, 1), datetime(2010, 12, 31)),
+        )
+
+
+def test_resolve_model_window_accepts_string_or_datetime():
+    start, end = resolve_model_window(
+        user_start=datetime(2010, 1, 1),
+        user_end="2015-12-31",
+    )
+    assert start == datetime(2010, 1, 1)
+    assert end == datetime(2015, 12, 31)

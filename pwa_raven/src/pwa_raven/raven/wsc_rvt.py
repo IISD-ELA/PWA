@@ -34,6 +34,55 @@ DEFAULT_GAP_THRESHOLD_DAYS = 1.5
 PARAM_DISCHARGE = 1  # WSC PARAM code: 1 = discharge
 
 
+def resolve_model_window(
+    *,
+    user_start: datetime | str,
+    user_end: datetime | str,
+    nc_dates: tuple[datetime, datetime] | None = None,
+    wsc_dates: tuple[datetime, datetime] | None = None,
+) -> tuple[datetime, datetime]:
+    """Pick the largest model window covered by every input data source.
+
+    The Raven model can only simulate a date range that all input sources
+    cover. Returns:
+
+      * ``start = max(user_start, nc_start, wsc_start)``
+      * ``end   = min(user_end,   nc_end,   wsc_end)``
+
+    Pass ``nc_dates`` and/or ``wsc_dates`` as ``(start, end)`` tuples
+    when those sources are available; pass ``None`` to skip them
+    (useful in tests).
+
+    Raises ``ValueError`` if the resolved window is empty (start > end).
+
+    Replaces the cell-34 inline ``max()/min()`` block in
+    ``2_raven_input_gen.ipynb``.
+    """
+    starts: list[datetime] = [pd.to_datetime(user_start).to_pydatetime()]
+    ends: list[datetime] = [pd.to_datetime(user_end).to_pydatetime()]
+
+    if nc_dates is not None:
+        starts.append(pd.to_datetime(nc_dates[0]).to_pydatetime())
+        ends.append(pd.to_datetime(nc_dates[1]).to_pydatetime())
+
+    if wsc_dates is not None:
+        starts.append(pd.to_datetime(wsc_dates[0]).to_pydatetime())
+        ends.append(pd.to_datetime(wsc_dates[1]).to_pydatetime())
+
+    resolved_start = max(starts)
+    resolved_end = min(ends)
+
+    if resolved_start > resolved_end:
+        raise ValueError(
+            f"Resolved model window is empty: start={resolved_start} > "
+            f"end={resolved_end}. Sources didn't overlap — check the "
+            f"NetCDF time variable and WSC date range against your "
+            f"requested user_start/user_end."
+        )
+
+    return resolved_start, resolved_end
+
+
 def clip_to_model_window(
     wsc_raw: pd.DataFrame,
     model_start: datetime,
