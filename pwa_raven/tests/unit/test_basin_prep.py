@@ -216,3 +216,125 @@ def test_prepare_basin_attributes_end_to_end(basin_gdf):
     assert result.channel_n == [0.025, DEFAULT_CHANNEL_N]       # -1.0 → 0.025
     # Enriched columns are on the returned GDF
     assert "time_of_conc" in result.gdf.columns
+
+
+# ---------------------------------------------------------------------------
+# Aspect ratio (minimum-area bounding rectangle)
+# ---------------------------------------------------------------------------
+
+
+def test_aspect_ratio_square_is_one():
+    """A square's MABR aspect ratio is 1.0."""
+    from shapely.geometry import Polygon
+    from pwa_raven.raven.basin_prep import compute_aspect_ratio_bbox
+
+    sq = Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])
+    assert compute_aspect_ratio_bbox(sq) == pytest.approx(1.0)
+
+
+def test_aspect_ratio_rotated_square_still_one():
+    """Rotating a square shouldn't change its aspect ratio (the MABR
+    rotates with it — that's the whole point of the algorithm)."""
+    from shapely.affinity import rotate
+    from shapely.geometry import Polygon
+    from pwa_raven.raven.basin_prep import compute_aspect_ratio_bbox
+
+    sq = Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])
+    rotated = rotate(sq, angle=37, use_radians=False)
+    assert compute_aspect_ratio_bbox(rotated) == pytest.approx(1.0, abs=1e-9)
+
+
+def test_aspect_ratio_axis_aligned_rectangle():
+    """A 4×1 axis-aligned rectangle has aspect ratio 4."""
+    from shapely.geometry import Polygon
+    from pwa_raven.raven.basin_prep import compute_aspect_ratio_bbox
+
+    rect = Polygon([(0, 0), (4, 0), (4, 1), (0, 1)])
+    assert compute_aspect_ratio_bbox(rect) == pytest.approx(4.0)
+
+
+def test_aspect_ratio_rotated_rectangle():
+    """The MABR algorithm finds the same 4:1 ratio under rotation —
+    the axis-aligned bounding box would mistakenly report higher."""
+    from shapely.affinity import rotate
+    from shapely.geometry import Polygon
+    from pwa_raven.raven.basin_prep import compute_aspect_ratio_bbox
+
+    rect = Polygon([(0, 0), (4, 0), (4, 1), (0, 1)])
+    rotated = rotate(rect, angle=30, use_radians=False)
+    assert compute_aspect_ratio_bbox(rotated) == pytest.approx(4.0, abs=1e-9)
+
+
+def test_aspect_ratio_returns_none_for_non_polygon():
+    """Points and lines aren't polygons; return None rather than crash."""
+    from shapely.geometry import Point
+    from pwa_raven.raven.basin_prep import compute_aspect_ratio_bbox
+
+    assert compute_aspect_ratio_bbox(Point(0, 0)) is None
+
+
+def test_aspect_ratio_multipolygon_picks_largest_component():
+    """When given a MultiPolygon, use the largest member polygon —
+    matches the legacy notebook behaviour."""
+    from shapely.geometry import MultiPolygon, Polygon
+    from pwa_raven.raven.basin_prep import compute_aspect_ratio_bbox
+
+    small_square = Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])
+    big_rectangle = Polygon([(10, 10), (16, 10), (16, 12), (10, 12)])  # 6×2 ratio = 3
+    mp = MultiPolygon([small_square, big_rectangle])
+    assert compute_aspect_ratio_bbox(mp) == pytest.approx(3.0)
+
+
+def test_compute_aspect_ratios_dataframe_schema():
+    """The convenience wrapper returns a 2-column DataFrame matching
+    aspect_ratios.csv's schema."""
+    import geopandas as gpd
+    from shapely.geometry import Polygon
+    from pwa_raven.raven.basin_prep import compute_aspect_ratios
+
+    gdf = gpd.GeoDataFrame({
+        "SubId": [101, 102, 103],
+        "geometry": [
+            Polygon([(0, 0), (1, 0), (1, 1), (0, 1)]),                # square → 1.0
+            Polygon([(0, 0), (2, 0), (2, 1), (0, 1)]),                # 2:1 → 2.0
+            Polygon([(0, 0), (4, 0), (4, 1), (0, 1)]),                # 4:1 → 4.0
+        ],
+    }, crs="EPSG:4326")
+
+    out = compute_aspect_ratios(gdf)
+    assert list(out.columns) == ["SubId", "Aspect_Ratio"]
+    assert out["SubId"].tolist() == [101, 102, 103]
+    assert out["Aspect_Ratio"].tolist() == pytest.approx([1.0, 2.0, 4.0])
+
+
+def test_compute_aspect_ratios_raises_on_missing_subid_column():
+    import geopandas as gpd
+    from shapely.geometry import Polygon
+    from pwa_raven.raven.basin_prep import compute_aspect_ratios
+
+    gdf = gpd.GeoDataFrame(
+        {"geometry": [Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])]},
+        crs="EPSG:4326",
+    )
+    with pytest.raises(KeyError, match="SubId"):
+        compute_aspect_ratios(gdf)
+
+
+def test_compute_aspect_ratios_preserves_nan_for_unparseable_geom():
+    """Geometries that the bbox computation can't handle (e.g., points)
+    show up as NaN rather than raising — the caller decides what to do."""
+    import geopandas as gpd
+    import pandas as pd
+    from shapely.geometry import Point, Polygon
+    from pwa_raven.raven.basin_prep import compute_aspect_ratios
+
+    gdf = gpd.GeoDataFrame({
+        "SubId": [1, 2],
+        "geometry": [
+            Polygon([(0, 0), (1, 0), (1, 1), (0, 1)]),
+            Point(5, 5),
+        ],
+    }, crs="EPSG:4326")
+    out = compute_aspect_ratios(gdf)
+    assert out["Aspect_Ratio"].iloc[0] == pytest.approx(1.0)
+    assert pd.isna(out["Aspect_Ratio"].iloc[1])

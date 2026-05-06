@@ -22,6 +22,7 @@ from dataclasses import dataclass
 
 import geopandas as gpd
 import numpy as np
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -236,3 +237,81 @@ def prepare_basin_attributes(
         basin_area_km2=basin_area_km2,
         outlet=outlet,
     )
+
+
+# ---------------------------------------------------------------------------
+# Aspect ratio (minimum-area bounding rectangle)
+# ---------------------------------------------------------------------------
+
+
+def compute_aspect_ratio_bbox(geom) -> float | None:
+    """Aspect ratio of a polygon's minimum-area bounding rectangle.
+
+    Returns ``longest_side / shortest_side`` of the smallest rectangle
+    that contains *geom* (the minimum-area bounding rectangle, MABR).
+    A near-square basin returns ~1.0; an elongated basin returns a
+    larger value.
+
+    Returns ``None`` for non-Polygon / non-MultiPolygon geometries and
+    for polygons whose MABR has a zero-length side (degenerate).
+
+    For MultiPolygon input the largest component polygon is used —
+    matches the legacy notebook behaviour.
+
+    Note on numerics: this uses shapely's ``minimum_rotated_rectangle``
+    rather than the rotating-calipers loop in the original notebook
+    (cell 78). The notebook's loop applies its rotation matrix in the
+    wrong direction (row-vector multiplication of a column-rotation
+    matrix inverts the rotation), so it does not actually find the
+    minimum area in the general case — the produced ``aspect_ratios.csv``
+    values for the grassmere watershed differ from the geometric
+    answer. See ``project-review/client-questions.md`` Q-004 for the
+    open question about whether to honour those legacy values.
+    """
+    # Local import keeps the heavy shapely dep out of module scope for
+    # callers who don't need geometry math.
+    from shapely.geometry import MultiPolygon, Polygon
+
+    if isinstance(geom, MultiPolygon):
+        geom = max(geom.geoms, key=lambda g: g.area)
+    if not isinstance(geom, Polygon):
+        return None
+
+    mabr = geom.minimum_rotated_rectangle
+    if not isinstance(mabr, Polygon):
+        return None
+
+    coords = np.array(mabr.exterior.coords[:-1])
+    if len(coords) < 4:
+        return None
+
+    # MABR is a rectangle: 4 vertices, 2 distinct edge lengths
+    side_a = float(np.linalg.norm(coords[1] - coords[0]))
+    side_b = float(np.linalg.norm(coords[2] - coords[1]))
+    if min(side_a, side_b) == 0:
+        return None
+    return max(side_a, side_b) / min(side_a, side_b)
+
+
+def compute_aspect_ratios(
+    gdf: gpd.GeoDataFrame, *, sub_id_col: str = "SubId",
+) -> pd.DataFrame:
+    """Per-subbasin aspect ratios as a 2-column DataFrame.
+
+    Returns a frame with ``sub_id_col`` and ``Aspect_Ratio`` columns —
+    matches the legacy ``aspect_ratios.csv`` schema (the SPOTPY
+    calibration setup reads it back via ``pd.read_csv``).
+
+    Rows whose geometry returns ``None`` (non-Polygon, degenerate, etc.)
+    are kept with NaN — the caller decides whether to drop or impute.
+    """
+    if sub_id_col not in gdf.columns:
+        raise KeyError(
+            f"Subbasin GeoDataFrame is missing the required column "
+            f"{sub_id_col!r}. Available: {list(gdf.columns)}"
+        )
+
+    return pd.DataFrame({
+        sub_id_col: gdf[sub_id_col].tolist(),
+        "Aspect_Ratio": [compute_aspect_ratio_bbox(g) for g in gdf.geometry],
+    })
