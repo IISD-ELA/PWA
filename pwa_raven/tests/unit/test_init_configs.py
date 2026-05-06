@@ -34,6 +34,16 @@ def test_nc_processing_parser_requires_output_path():
         _nc_processing_parser().parse_args([])
 
 
+def _write_synthetic_netcdf(path: Path, var_names: list[str]) -> None:
+    """Create a tiny NetCDF with the given data_vars, for auto-detect tests."""
+    import numpy as np
+    import xarray as xr
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = {name: (("time",), np.zeros(3, dtype="float32")) for name in var_names}
+    xr.Dataset(data, coords={"time": np.arange(3)}).to_netcdf(path)
+
+
 def test_nc_processing_main_writes_yaml_and_round_trips(monkeypatch, tmp_path: Path, capsys):
     out = tmp_path / "nc_processing.yml"
     _stub_inputs(monkeypatch, [
@@ -42,6 +52,7 @@ def test_nc_processing_main_writes_yaml_and_round_trips(monkeypatch, tmp_path: P
         str(tmp_path / "raw" / "phydap.nc"),                 # phydap_nc
         str(tmp_path / "raw" / "phydap.shp"),                # phydap_shapefile
         str(tmp_path / "subbasins" / "deps.shp"),            # subbasins_shapefile
+        "",                                                  # nc_variable → default (file doesn't exist, fallback)
     ])
 
     rc = nc_processing_main([str(out)])
@@ -63,11 +74,81 @@ def test_nc_processing_main_uses_default_output_dir_on_blank(monkeypatch, tmp_pa
         str(tmp_path / "p.nc"),
         str(tmp_path / "p.shp"),
         str(tmp_path / "s.shp"),
+        "",                                # nc_variable → fallback default
     ])
     rc = nc_processing_main([str(out)])
     assert rc == 0
     cfg = NcProcessingConfig.from_yaml(out)
     assert cfg.output_dir == Path("./Data")
+
+
+def test_nc_processing_main_auto_detects_variable_from_netcdf(
+    monkeypatch, tmp_path: Path, capsys
+):
+    """When phydap_nc exists, the prompt should show its data_vars and use
+    the first one as the default."""
+    nc_path = tmp_path / "phydap.nc"
+    _write_synthetic_netcdf(nc_path, ["cropped_runoff", "extra_var"])
+
+    out = tmp_path / "nc_processing.yml"
+    _stub_inputs(monkeypatch, [
+        "grassmere",
+        str(tmp_path / "Data"),
+        str(nc_path),
+        str(tmp_path / "p.shp"),
+        str(tmp_path / "s.shp"),
+        "",                                # accept auto-detected default
+    ])
+    rc = nc_processing_main([str(out)])
+    assert rc == 0
+    captured = capsys.readouterr()
+    # The prompt or summary should reference the variables found in the file
+    assert "cropped_runoff" in captured.out or "cropped_runoff" in captured.err
+
+    cfg = NcProcessingConfig.from_yaml(out)
+    assert cfg.nc_variable == "cropped_runoff"
+
+
+def test_nc_processing_main_falls_back_when_phydap_nc_missing(
+    monkeypatch, tmp_path: Path, capsys
+):
+    """When phydap_nc doesn't exist on disk, the prompt should fall back
+    to the dataclass default rather than crashing."""
+    out = tmp_path / "nc_processing.yml"
+    _stub_inputs(monkeypatch, [
+        "grassmere",
+        str(tmp_path / "Data"),
+        str(tmp_path / "does_not_exist.nc"),
+        str(tmp_path / "p.shp"),
+        str(tmp_path / "s.shp"),
+        "",                                # accept fallback default
+    ])
+    rc = nc_processing_main([str(out)])
+    assert rc == 0
+    cfg = NcProcessingConfig.from_yaml(out)
+    assert cfg.nc_variable == "cropped_runoff"  # dataclass default
+
+
+def test_nc_processing_main_prints_summary_of_silent_defaults(
+    monkeypatch, tmp_path: Path, capsys
+):
+    """After writing the YAML, the script should surface the optional fields
+    that used defaults so the user knows what was assumed."""
+    out = tmp_path / "nc_processing.yml"
+    _stub_inputs(monkeypatch, [
+        "grassmere",
+        str(tmp_path / "Data"),
+        str(tmp_path / "p.nc"),
+        str(tmp_path / "p.shp"),
+        str(tmp_path / "s.shp"),
+        "",
+    ])
+    rc = nc_processing_main([str(out)])
+    assert rc == 0
+    captured = capsys.readouterr().out
+    # At least the data_category and time_offset defaults should be surfaced
+    assert "data_category" in captured
+    assert "time_offset_hours" in captured
 
 
 def test_nc_processing_main_refuses_overwrite_without_force(monkeypatch, tmp_path: Path, capsys):
@@ -89,6 +170,7 @@ def test_nc_processing_main_overwrites_with_force(monkeypatch, tmp_path: Path):
     _stub_inputs(monkeypatch, [
         "fresh", str(tmp_path), str(tmp_path / "p.nc"),
         str(tmp_path / "p.shp"), str(tmp_path / "s.shp"),
+        "",  # nc_variable → fallback default
     ])
     rc = nc_processing_main([str(out), "--force"])
     assert rc == 0

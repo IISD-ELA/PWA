@@ -38,7 +38,7 @@ __all__ = ["run_nc_processing", "NcProcessingConfig", "main"]
 
 def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="pwa-run-nc-processing",
+        prog="pwa-nc-processing",
         description=(
             "Run the PWA NetCDF processing pipeline (PHyDAP subsetting + "
             "GridWeights + time offset)."

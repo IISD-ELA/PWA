@@ -35,7 +35,7 @@ __all__ = ["run_raven_inputs", "RavenInputsConfig", "main"]
 
 def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="pwa-run-raven-inputs",
+        prog="pwa-raven-inputs",
         description=(
             "Run the PWA Raven input file generation pipeline (.rv* files "
             "+ WSC RVT + calibration templates + aspect ratios)."

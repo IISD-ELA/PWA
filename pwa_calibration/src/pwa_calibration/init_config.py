@@ -114,7 +114,7 @@ def prompt_for_calibration_config(
 
 def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="pwa-init-calibration-config",
+        prog="pwa-init-calibration",
         description=(
             "Interactively build a calibration.yml suitable for "
             "pwa_calibration.runner.run_calibration."

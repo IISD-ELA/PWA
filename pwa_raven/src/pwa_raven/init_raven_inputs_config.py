@@ -92,7 +92,7 @@ def prompt_for_raven_inputs_config(
 
 def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="pwa-init-raven-inputs-config",
+        prog="pwa-init-raven-inputs",
         description=(
             "Interactively build a raven_inputs.yml suitable for "
             "pwa_raven.run_raven_inputs."
