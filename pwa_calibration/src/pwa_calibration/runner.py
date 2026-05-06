@@ -27,6 +27,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+from .prepare import StagingPaths, prepare_calibration_directory
 from .setup import CalibrationConfig, SpotPySetup
 
 logger = logging.getLogger(__name__)
@@ -111,6 +112,8 @@ def run_calibration(
     db_format: str = "csv",
     save_sim: bool = True,
     algorithm: str = "mc",
+    *,
+    staging: Optional[StagingPaths] = None,
 ) -> str:
     """Run a SPOTPY sampler against the given calibration config.
 
@@ -132,6 +135,17 @@ def run_calibration(
         ``3_calibrate.py``). The script comment in the original noted
         that ROPE "flattens the parameter space and collapses",
         so MC was the intentional default.
+    staging
+        Optional :class:`~pwa_calibration.prepare.StagingPaths`. When
+        provided, runs :func:`prepare_calibration_directory` to copy
+        Raven binary, .rv* files, GridWeights, depression-depths
+        shapefile, etc. from the watershed source folders into
+        ``config.calib_dir`` before validating inputs. This mirrors the
+        legacy notebook 4 §1.1–1.3 staging-then-calibrate workflow.
+        Leave as None when the calibration directory is already
+        populated (the default — staging is opt-in, not implicit, so
+        re-running calibration on a hand-tuned ``config.calib_dir``
+        doesn't unexpectedly overwrite local edits).
 
     Returns
     -------
@@ -139,6 +153,17 @@ def run_calibration(
     output file.
     """
     import spotpy.algorithms as alg
+
+    if staging is not None:
+        logger.info("Staging calibration inputs from %s", staging.data_root)
+        report = prepare_calibration_directory(staging)
+        logger.info(
+            "Staging report: %d files copied, %d skipped (already present), "
+            "%d sources missing",
+            len(report.copied),
+            len(report.skipped_existing),
+            len(report.missing_sources),
+        )
 
     # Fail fast if expected input files are missing — saves a 24-hour
     # AWS calibration job from crashing on a missing CSV partway through.
@@ -211,6 +236,26 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--channel-scaling", action="store_true")
     parser.add_argument("--no-phydap-adj", action="store_true")
     parser.add_argument(
+        "--stage-from",
+        type=Path,
+        default=None,
+        help=(
+            "Path to the watershed Data root. When given, the runner stages "
+            "Raven binary, .rv* files, GridWeights, etc. from the source "
+            "folders under <stage-from>/<model-name>/ into <calib-dir> "
+            "before validating inputs. Requires --netcdf-category."
+        ),
+    )
+    parser.add_argument(
+        "--netcdf-category",
+        default=None,
+        help=(
+            "NetCDF data category subfolder name "
+            "(e.g. 'Runoff', 'Snowmelt', 'Rainfall'). "
+            "Required when --stage-from is set."
+        ),
+    )
+    parser.add_argument(
         "--log-level",
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
@@ -226,6 +271,20 @@ def main(argv: Optional[list[str]] = None) -> int:
         level=getattr(logging, args.log_level),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+
+    if (args.stage_from is None) != (args.netcdf_category is None):
+        parser.error(
+            "--stage-from and --netcdf-category must be given together "
+            "(or both omitted to skip staging)."
+        )
+
+    staging: Optional[StagingPaths] = None
+    if args.stage_from is not None:
+        staging = StagingPaths(
+            watershed_name=args.model_name,
+            data_root=args.stage_from,
+            netcdf_category=args.netcdf_category,
+        )
 
     config = CalibrationConfig(
         model_name=args.model_name,
@@ -246,6 +305,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         config=config,
         repetitions=args.repetitions,
         db_suffix=args.db_suffix,
+        staging=staging,
     )
     return 0
 

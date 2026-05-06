@@ -201,3 +201,140 @@ def test_cli_rejects_unknown_obj_fn(tmp_path: Path):
         parser.parse_args(
             ["x", "--model-name", "m", "--calib-dir", str(tmp_path), "--obj-fn", "bogus"]
         )
+
+
+# ---------------------------------------------------------------------------
+# Staging integration (--stage-from / --netcdf-category + run_calibration's
+# `staging` keyword)
+# ---------------------------------------------------------------------------
+
+
+from pwa_calibration.prepare import StagingPaths
+from pwa_calibration.runner import main as runner_main
+from pwa_calibration.runner import run_calibration
+
+
+def test_cli_stage_from_flags_default_to_none(tmp_path: Path):
+    parser = _build_arg_parser()
+    args = parser.parse_args(
+        ["x", "--model-name", "m", "--calib-dir", str(tmp_path)]
+    )
+    assert args.stage_from is None
+    assert args.netcdf_category is None
+
+
+def test_cli_stage_from_requires_netcdf_category(tmp_path: Path, capsys):
+    """argparse --stage-from without --netcdf-category should error out."""
+    rc = None
+    try:
+        runner_main([
+            "results",
+            "--model-name", "grassmere",
+            "--calib-dir", str(tmp_path),
+            "--stage-from", str(tmp_path / "Data"),
+        ])
+    except SystemExit as exc:
+        rc = exc.code
+    assert rc == 2  # argparse error exit
+    err = capsys.readouterr().err
+    assert "--stage-from" in err and "--netcdf-category" in err
+
+
+def test_cli_netcdf_category_requires_stage_from(tmp_path: Path, capsys):
+    """The mutual-requirement check is symmetric."""
+    rc = None
+    try:
+        runner_main([
+            "results",
+            "--model-name", "grassmere",
+            "--calib-dir", str(tmp_path),
+            "--netcdf-category", "Runoff",
+        ])
+    except SystemExit as exc:
+        rc = exc.code
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "--stage-from" in err and "--netcdf-category" in err
+
+
+def test_run_calibration_calls_prepare_when_staging_set(monkeypatch, tmp_path: Path):
+    """When ``staging`` is provided, run_calibration calls
+    prepare_calibration_directory before validate_inputs_exist."""
+    call_log: list[str] = []
+
+    def fake_prepare(paths: StagingPaths):
+        call_log.append("prepare")
+        # Mimic the real return shape — has .copied / .skipped_existing
+        # / .missing_sources lists.
+        from pwa_calibration.prepare import StagingReport
+        return StagingReport()
+
+    def fake_validate(self):
+        call_log.append("validate")
+
+    def fake_setup(_config):
+        call_log.append("setup")
+        return object()
+
+    def fake_alg_mc(*_a, **_kw):
+        class _S:
+            def sample(self, *_a, **_kw):
+                call_log.append("sample")
+        return _S()
+
+    import pwa_calibration.runner as runner_mod
+    monkeypatch.setattr(runner_mod, "prepare_calibration_directory", fake_prepare)
+    monkeypatch.setattr(
+        "pwa_calibration.setup.CalibrationConfig.validate_inputs_exist",
+        fake_validate,
+    )
+    monkeypatch.setattr(runner_mod, "SpotPySetup", fake_setup)
+    monkeypatch.setattr(runner_mod, "patch_rope_get_best_runs", lambda: True)
+    monkeypatch.setattr("spotpy.algorithms.mc", fake_alg_mc)
+
+    cfg = CalibrationConfig(model_name="grassmere", calib_dir=tmp_path)
+    staging = StagingPaths(
+        watershed_name="grassmere",
+        data_root=tmp_path / "Data",
+        netcdf_category="Runoff",
+    )
+    run_calibration(cfg, repetitions=1, db_suffix="x", staging=staging)
+
+    # prepare must run BEFORE validate (otherwise we'd validate before the
+    # files are in place and fail spuriously)
+    assert call_log[:2] == ["prepare", "validate"]
+    assert "sample" in call_log
+
+
+def test_run_calibration_skips_prepare_when_staging_none(monkeypatch, tmp_path: Path):
+    """When staging is None (default), prepare_calibration_directory is
+    never called — the calibration directory must already be populated."""
+    called = {"prepare": 0}
+
+    def fake_prepare(_paths):
+        called["prepare"] += 1
+        from pwa_calibration.prepare import StagingReport
+        return StagingReport()
+
+    monkeypatch.setattr(
+        "pwa_calibration.runner.prepare_calibration_directory", fake_prepare
+    )
+    monkeypatch.setattr(
+        "pwa_calibration.setup.CalibrationConfig.validate_inputs_exist",
+        lambda self: None,
+    )
+    monkeypatch.setattr(
+        "pwa_calibration.runner.SpotPySetup", lambda _c: object()
+    )
+    monkeypatch.setattr("pwa_calibration.runner.patch_rope_get_best_runs", lambda: True)
+
+    class _Sampler:
+        def sample(self, *_a, **_kw):
+            pass
+
+    monkeypatch.setattr("spotpy.algorithms.mc", lambda *_a, **_kw: _Sampler())
+
+    cfg = CalibrationConfig(model_name="grassmere", calib_dir=tmp_path)
+    run_calibration(cfg, repetitions=1, db_suffix="x")  # no staging arg
+
+    assert called["prepare"] == 0
