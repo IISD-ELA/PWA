@@ -69,13 +69,31 @@ class StagingPaths:
         object.__setattr__(self, "data_root", Path(self.data_root))
 
     # ---- source paths ----
+    # These mirror the refactored pipeline's output layout:
+    #   Step 0 (pwa_tools)   → <watershed>/HydroConditioning/Processed/
+    #   Step 1 (pwa_raven)   → <watershed>/<category>/Processed/
+    #   Step 2 (pwa_raven)   → <watershed>/Raven/Processed/ with .rv* files
+    #                          flat and input/ + templates/ subdirectories.
     @property
     def raven_processed_dir(self) -> Path:
         return self.data_root / self.watershed_name / "Raven" / "Processed"
 
     @property
-    def dd_processed_dir(self) -> Path:
-        return self.data_root / self.watershed_name / "DepressionDepths" / "Processed"
+    def raven_input_dir(self) -> Path:
+        """Step 2 nests HRU-areas / tp_tc / WSC-outlet / aspect-ratio
+        files in an ``input/`` subdirectory of Raven/Processed/."""
+        return self.raven_processed_dir / "input"
+
+    @property
+    def raven_templates_dir(self) -> Path:
+        """Step 2 nests the SPOTPY ``.tpl`` templates in a ``templates/``
+        subdirectory of Raven/Processed/."""
+        return self.raven_processed_dir / "templates"
+
+    @property
+    def hydrocon_processed_dir(self) -> Path:
+        """Step 0 writes the depression-depths shapefile here."""
+        return self.data_root / self.watershed_name / "HydroConditioning" / "Processed"
 
     @property
     def nc_processed_dir(self) -> Path:
@@ -101,7 +119,8 @@ class StagingPaths:
 
     @property
     def aspect_ratios_source(self) -> Path:
-        return self.dd_processed_dir / "aspect_ratios.csv"
+        # aspect_ratios.csv is a Step 2 output, written into Raven/Processed/input/.
+        return self.raven_input_dir / "aspect_ratios.csv"
 
     @property
     def grid_weights_source(self) -> Path:
@@ -198,8 +217,11 @@ def stage_raven_binary(paths: StagingPaths, report: StagingReport) -> None:
 
 
 def stage_depression_depths(paths: StagingPaths, report: StagingReport) -> None:
-    """1.3.2 — copy all depression-depths sidecars into ``input/``."""
-    for source in _files_with_suffixes(paths.dd_processed_dir, _DD_FILE_EXTENSIONS):
+    """1.3.2 — copy all depression-depths sidecars into ``input/``.
+
+    Source is Step 0's ``HydroConditioning/Processed/`` directory.
+    """
+    for source in _files_with_suffixes(paths.hydrocon_processed_dir, _DD_FILE_EXTENSIONS):
         _copy_if_absent(source, paths.calibration_input_dir / source.name, report)
 
 
@@ -246,7 +268,7 @@ def stage_template_files(paths: StagingPaths, report: StagingReport) -> None:
     sentinel that :func:`pwa_calibration.setup._find_nc_template` looks
     for at simulation time).
     """
-    for source in _files_with_suffixes(paths.raven_processed_dir, ("tpl",)):
+    for source in _files_with_suffixes(paths.raven_templates_dir, ("tpl",)):
         _copy_if_absent(source, paths.calibration_template_dir / source.name, report)
 
     for source in _files_with_suffixes(paths.nc_processed_dir, (".nc",)):
@@ -255,13 +277,16 @@ def stage_template_files(paths: StagingPaths, report: StagingReport) -> None:
 
 
 def stage_other_inputs(paths: StagingPaths, report: StagingReport) -> None:
-    """1.3.6 — aspect ratios, HRU areas, tp/tc, WSC outlet."""
+    """1.3.6 — aspect ratios, HRU areas, tp/tc, WSC outlet.
+
+    All four are Step 2 outputs nested in ``Raven/Processed/input/``.
+    """
     _copy_if_absent(
         paths.aspect_ratios_source,
         paths.calibration_input_dir / "aspect_ratios.csv",
         report,
     )
-    for source in _files_with_suffixes(paths.raven_processed_dir, _OTHER_INPUT_SUFFIXES):
+    for source in _files_with_suffixes(paths.raven_input_dir, _OTHER_INPUT_SUFFIXES):
         _copy_if_absent(source, paths.calibration_input_dir / source.name, report)
 
 
