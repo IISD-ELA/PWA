@@ -9,6 +9,7 @@ from shapely.geometry import Polygon
 
 from pwa_raven.grid.weights import (
     compute_subbasin_to_grid_mapping,
+    generate_grid_weights,
     write_grid_weights_file,
 )
 
@@ -184,3 +185,52 @@ def test_write_grid_weights_file_returns_path(tmp_path):
 
     returned = write_grid_weights_file(mapping, n_grid_cells=1, watershed_name="x", output_path=out)
     assert returned == out
+
+
+# ---------------------------------------------------------------------------
+# generate_grid_weights — :NumberGridCells must be the subset cell count
+# ---------------------------------------------------------------------------
+
+def test_generate_grid_weights_uses_subset_count_not_full_grid(tmp_path):
+    """:NumberGridCells must equal the subset cell count (len(hybas_map)),
+    NOT len(phydap). The forcing NetCDF Raven reads is the subset, so a
+    full-grid count makes Raven abort with ':NumberGridCells given does
+    not agree with NetCDF file content'."""
+    # Full PHyDAP grid: 2x2 = 4 cells.
+    phydap = gpd.GeoDataFrame(
+        {"HYBAS_ID": [1001, 1002, 1003, 1004]},
+        geometry=[
+            Polygon([(0, 0), (1, 0), (1, 1), (0, 1)]),  # 1001
+            Polygon([(0, 1), (1, 1), (1, 2), (0, 2)]),  # 1002
+            Polygon([(1, 0), (2, 0), (2, 1), (1, 1)]),  # 1003
+            Polygon([(1, 1), (2, 1), (2, 2), (1, 2)]),  # 1004
+        ],
+        crs="EPSG:4326",
+    )
+    phydap_path = tmp_path / "phydap.shp"
+    phydap.to_file(phydap_path)
+
+    # hybas_map: the SUBSET — only 2 of the 4 cells.
+    hybas_map_path = tmp_path / "hybas_map.csv"
+    pd.DataFrame({"hybas_id": [1001, 1003], "grid_idx": [0, 1]}).to_csv(
+        hybas_map_path, index=False
+    )
+
+    # Sub-basins, one in HYBAS 1001 and one in HYBAS 1003.
+    subbasins = gpd.GeoDataFrame(
+        [_subbasin_at((0.5, 0.5), 1), _subbasin_at((1.5, 0.5), 2)],
+        crs="EPSG:4326",
+    )
+    subbasins_path = tmp_path / "subbasins.shp"
+    subbasins.to_file(subbasins_path)
+
+    out = generate_grid_weights(
+        subbasins_shp=subbasins_path,
+        phydap_shp=phydap_path,
+        hybas_map_csv=hybas_map_path,
+        watershed_name="test",
+        output_path=tmp_path / "GridWeights.txt",
+    )
+    content = out.read_text()
+    assert ":NumberGridCells  2" in content      # len(hybas_map) — the subset
+    assert ":NumberGridCells  4" not in content  # NOT len(phydap) — the full grid
