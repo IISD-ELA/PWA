@@ -44,11 +44,43 @@ def real_rvh(tmp_path: Path) -> Path:
 # generate_rvh_template
 # ---------------------------------------------------------------------------
 
-def test_rvh_template_appends_qreference_column(tmp_path: Path, real_rvh):
+def test_rvh_template_subbasins_header_has_single_qreference(tmp_path: Path, real_rvh):
+    """The base .rvh from rv_writers already carries a Q_REFERENCE column;
+    the template generator must not append a second one."""
     out = generate_rvh_template(real_rvh, tmp_path / "templates" / "x.rvh.tpl")
-    content = out.read_text()
-    assert "Q_REFERENCE" in content
-    assert "m3/s" in content
+    attr_line = next(
+        ln for ln in out.read_text().splitlines()
+        if ln.strip().startswith(":Attributes") and "DOWNSTREAM_ID" in ln
+    )
+    assert attr_line.count("Q_REFERENCE") == 1
+
+
+def test_rvh_template_subbasins_header_matches_row_width(tmp_path: Path, real_rvh):
+    """The :Attributes column count must equal the data-row field count.
+    A mismatch makes Raven read a phantom empty column → 'Reference flow
+    must be non-zero and positive'."""
+    out = generate_rvh_template(real_rvh, tmp_path / "templates" / "x.rvh.tpl")
+    in_sb = False
+    attr_cols = data_cols = None
+    for line in out.read_text().splitlines():
+        s = line.strip()
+        if s.startswith(":SubBasins"):
+            in_sb = True
+            continue
+        if s.startswith(":EndSubBasins"):
+            break
+        if not in_sb:
+            continue
+        if s.startswith(":Attributes"):
+            attr_cols = len(s.split()) - 1  # drop the ":Attributes" keyword
+        elif s and not s.startswith((":", "#")):
+            data_cols = len(s.split())
+            break
+    assert attr_cols is not None and data_cols is not None
+    assert attr_cols == data_cols, (
+        f"SubBasins header has {attr_cols} columns but data rows have "
+        f"{data_cols} fields"
+    )
 
 
 def test_rvh_template_replaces_per_basin_qref_placeholder(tmp_path: Path, real_rvh):

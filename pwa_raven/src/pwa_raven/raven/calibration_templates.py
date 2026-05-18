@@ -32,9 +32,10 @@ def generate_rvh_template(real_rvh_path: Path | str, output_path: Path | str) ->
 
     Three sections are transformed:
 
-      - **SubBasins**: append ``Q_REFERENCE`` column header (units ``m3/s``)
-        and replace the per-row reference flow with a placeholder
-        ``qref_<subid>``.
+      - **SubBasins**: replace the per-row reference flow with a
+        placeholder ``qref_<subid>``. The ``Q_REFERENCE`` column header
+        is already written into the base ``.rvh`` by
+        ``rv_writers.write_rvh`` and is left untouched.
       - **HRUs**: replace the area column with ``H<hruid>_area`` placeholder.
       - **SubBasinProperties**: replace ``TIME_CONC`` / ``TIME_TO_PEAK``
         values with placeholders ``tc_<subid>`` / ``tp_<subid>``.
@@ -68,18 +69,19 @@ def generate_rvh_template(real_rvh_path: Path | str, output_path: Path | str) ->
                     or stripped.startswith(":EndSubBasinProperties"):
                 in_subbasins = in_hrus = in_props = False
 
-            if in_subbasins:
-                if stripped.startswith(":Attributes"):
-                    line = line.rstrip("\n") + "   Q_REFERENCE\n"
-                elif stripped.startswith(":Units"):
-                    line = line.rstrip("\n") + "    m3/s\n"
-                elif _is_data_line(stripped):
-                    parts = line.split()
-                    sub_id, _name, downstream, _profile, reach_length, gauged = parts[:6]
-                    line = (
-                        f"{int(sub_id):>10}  sub{sub_id:<10}  {int(downstream):>10}  "
-                        f"chn_{sub_id:<10}  {reach_length:>10}  {gauged:>5}   qref_{sub_id}\n"
-                    )
+            if in_subbasins and _is_data_line(stripped):
+                # The base .rvh already carries the Q_REFERENCE column with a
+                # concrete value. Swap that value for the qref_<subid>
+                # placeholder; leave the :Attributes / :Units headers alone
+                # (appending here would duplicate the column and leave Raven
+                # reading a phantom empty 8th column → "Reference flow must
+                # be non-zero and positive").
+                parts = line.split()
+                sub_id, _name, downstream, _profile, reach_length, gauged = parts[:6]
+                line = (
+                    f"{int(sub_id):>10}  sub{sub_id:<10}  {int(downstream):>10}  "
+                    f"chn_{sub_id:<10}  {reach_length:>10}  {gauged:>5}   qref_{sub_id}\n"
+                )
 
             if in_hrus and _is_data_line(stripped):
                 parts = line.split()
