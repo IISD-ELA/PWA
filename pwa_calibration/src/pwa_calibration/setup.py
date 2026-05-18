@@ -562,11 +562,14 @@ class SpotPySetup:
         logger.debug("Generated parameters: %s", generated)
         return generated
 
-    def simulation(self, param_vector, exts: Optional[list[str]] = None) -> float:
+    def simulation(self, param_vector, exts: Optional[list[str]] = None) -> list[float]:
         """Run one Raven simulation, return the objective-function value.
 
         ``param_vector`` is the SpotPy ``ParameterSet`` (has ``.random``
         and ``.name`` attributes).
+
+        Returns a single-element ``[value]`` list, not a bare float —
+        SPOTPY's database layer calls ``len()`` on the result.
         """
         if exts is None:
             exts = ["rvp", "rvh"]
@@ -674,7 +677,14 @@ class SpotPySetup:
             value,
             dict(rounded),
         )
-        return value
+        # Return the objective value wrapped in a single-element list.
+        # This calibration uses the "simulation() returns the metric"
+        # SPOTPY idiom (evaluation() returns the target, objectivefunction()
+        # squeezes it through), but SPOTPY's database layer calls
+        # len(simulations) to build its column header — a bare float has
+        # no len(). The list makes it a one-column "simulation"; the
+        # np.squeeze in objectivefunction still recovers the scalar.
+        return [value]
 
     def evaluation(self):
         """Return the target value for SPOTPY's ``like`` interpretation.
