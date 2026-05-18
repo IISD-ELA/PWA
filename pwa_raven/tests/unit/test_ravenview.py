@@ -24,6 +24,7 @@ from pwa_raven.raven.ravenview import (
     rivers_to_ravenview_geojson,
     subbasins_to_ravenview_geojson,
     export_for_ravenview,
+    validate_ravenview_geojson,
 )
 
 
@@ -116,7 +117,7 @@ def test_subbasins_to_geojson_writes_valid_feature_collection(
     synthetic_subbasin_shapefile: Path, tmp_path: Path,
 ):
     out = tmp_path / "subbasins.json"
-    subbasins_to_ravenview_geojson(synthetic_subbasin_shapefile, out)
+    subbasins_to_ravenview_geojson(synthetic_subbasin_shapefile, out, schema="liard")
     payload = json.loads(out.read_text())
     assert payload["type"] == "FeatureCollection"
     assert len(payload["features"]) == 2
@@ -129,7 +130,7 @@ def test_subbasins_derives_required_properties(
     synthetic_subbasin_shapefile: Path, tmp_path: Path,
 ):
     out = tmp_path / "subbasins.json"
-    subbasins_to_ravenview_geojson(synthetic_subbasin_shapefile, out)
+    subbasins_to_ravenview_geojson(synthetic_subbasin_shapefile, out, schema="liard")
     feats = json.loads(out.read_text())["features"]
 
     f0 = feats[0]["properties"]
@@ -150,7 +151,7 @@ def test_subbasins_passthrough_properties_preserved(
     synthetic_subbasin_shapefile: Path, tmp_path: Path,
 ):
     out = tmp_path / "subbasins.json"
-    subbasins_to_ravenview_geojson(synthetic_subbasin_shapefile, out)
+    subbasins_to_ravenview_geojson(synthetic_subbasin_shapefile, out, schema="liard")
     f0 = json.loads(out.read_text())["features"][0]["properties"]
     # All the source-shapefile passthrough fields show up
     for key in ("Area", "BBasin", "Sub_B", "Downstream", "Gauged", "Reach", "Checked", "B"):
@@ -171,7 +172,7 @@ def test_subbasins_reprojects_to_wgs84(tmp_path: Path):
     )
     src = _write_shapefile(gdf, tmp_path / "src.shp")
     out = tmp_path / "out.json"
-    subbasins_to_ravenview_geojson(src, out)
+    subbasins_to_ravenview_geojson(src, out, schema="liard")
     coords = json.loads(out.read_text())["features"][0]["geometry"]["coordinates"][0]
     # All coords should be lon/lat (well within ±180 / ±90)
     for lon, lat in coords:
@@ -187,7 +188,7 @@ def test_subbasins_raises_when_required_column_missing(tmp_path: Path):
     )
     src = _write_shapefile(gdf, tmp_path / "incomplete.shp")
     with pytest.raises(KeyError, match="missing required column"):
-        subbasins_to_ravenview_geojson(src, tmp_path / "out.json")
+        subbasins_to_ravenview_geojson(src, tmp_path / "out.json", schema="liard")
 
 
 def test_subbasins_raises_when_source_crs_missing(tmp_path: Path):
@@ -199,7 +200,70 @@ def test_subbasins_raises_when_source_crs_missing(tmp_path: Path):
     })  # no CRS
     src = _write_shapefile(gdf, tmp_path / "no_crs.shp")
     with pytest.raises(ValueError, match="no CRS"):
-        subbasins_to_ravenview_geojson(src, tmp_path / "out.json")
+        subbasins_to_ravenview_geojson(src, tmp_path / "out.json", schema="liard")
+
+
+# ---------------------------------------------------------------------------
+# CLRH schema — the PWA pipeline's own subbasin output
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def synthetic_clrh_subbasin_shapefile(tmp_path: Path) -> Path:
+    """Two-basin synthetic shapefile in the CLRH-hydrofabric schema."""
+    polygons = [
+        Polygon([(0, 0), (1, 0), (1, 1), (0, 1), (0, 0)]),
+        Polygon([(1, 0), (2, 0), (2, 1), (1, 1), (1, 0)]),
+    ]
+    gdf = gpd.GeoDataFrame(
+        {
+            "SubId": [101, 102],
+            "DowSubId": [102, -1],            # second basin is the outlet
+            "BasArea": [1_500_000.0, 4_200_000.0],
+            "Q_Mean": [0.5, 1.2],             # extra CLRH column — carried through
+            "geometry": polygons,
+        },
+        crs="EPSG:4326",
+    )
+    return _write_shapefile(gdf, tmp_path / "clrh_subbasins.shp")
+
+
+def test_clrh_subbasins_derive_required_properties(
+    synthetic_clrh_subbasin_shapefile: Path, tmp_path: Path,
+):
+    out = tmp_path / "sub.json"
+    # schema="clrh" is the default
+    subbasins_to_ravenview_geojson(synthetic_clrh_subbasin_shapefile, out)
+    feats = json.loads(out.read_text())["features"]
+
+    f0 = feats[0]["properties"]
+    assert f0["SubId"] == 101
+    assert f0["rvhName"] == "sub101"
+    assert f0["DowSubId"] == "102"
+    assert f0["BasArea"] == 1_500_000
+    assert f0["rmapshaperid"] == 0
+
+    assert feats[1]["properties"]["DowSubId"] == "-1"  # outlet sentinel preserved
+
+
+def test_clrh_subbasins_carry_extra_columns(
+    synthetic_clrh_subbasin_shapefile: Path, tmp_path: Path,
+):
+    """Non-RavenView CLRH columns ride along as extra properties —
+    RavenView ignores what it doesn't use."""
+    out = tmp_path / "sub.json"
+    subbasins_to_ravenview_geojson(synthetic_clrh_subbasin_shapefile, out)
+    f0 = json.loads(out.read_text())["features"][0]["properties"]
+    assert f0["Q_Mean"] == 0.5
+
+
+def test_subbasins_rejects_unknown_schema(
+    synthetic_clrh_subbasin_shapefile: Path, tmp_path: Path,
+):
+    with pytest.raises(ValueError, match="Unknown subbasin schema"):
+        subbasins_to_ravenview_geojson(
+            synthetic_clrh_subbasin_shapefile, tmp_path / "out.json", schema="bogus"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -276,11 +340,102 @@ def test_export_for_ravenview_writes_both_files(
         rivers_shapefile=synthetic_rivers_shapefile,
         output_dir=out_dir,
         watershed_name="testwater",
+        schema="liard",
     )
     assert sub_path == out_dir / "testwater.json"
     assert riv_path == out_dir / "testwaterRivers.json"
     assert sub_path.is_file()
     assert riv_path.is_file()
+
+
+# ---------------------------------------------------------------------------
+# validate_ravenview_geojson
+# ---------------------------------------------------------------------------
+
+
+def _write_json(obj: dict, path: Path) -> Path:
+    path.write_text(json.dumps(obj))
+    return path
+
+
+def test_validate_accepts_generated_subbasin_file(
+    synthetic_clrh_subbasin_shapefile: Path, tmp_path: Path,
+):
+    out = tmp_path / "sub.json"
+    subbasins_to_ravenview_geojson(synthetic_clrh_subbasin_shapefile, out)
+    assert validate_ravenview_geojson(out, kind="subbasins") == []
+
+
+def test_validate_accepts_generated_rivers_file(
+    synthetic_rivers_shapefile: Path, tmp_path: Path,
+):
+    out = tmp_path / "rivers.json"
+    rivers_to_ravenview_geojson(synthetic_rivers_shapefile, out)
+    assert validate_ravenview_geojson(out, kind="rivers") == []
+
+
+def test_validate_flags_wrong_geometry_type(
+    synthetic_rivers_shapefile: Path, tmp_path: Path,
+):
+    """A rivers file (LineStrings) validated as subbasins should flag
+    the geometry-type mismatch."""
+    out = tmp_path / "rivers.json"
+    rivers_to_ravenview_geojson(synthetic_rivers_shapefile, out)
+    problems = validate_ravenview_geojson(out, kind="subbasins")
+    assert any("geometry.type" in p for p in problems)
+
+
+def test_validate_flags_non_featurecollection(tmp_path: Path):
+    bad = _write_json({"type": "Feature", "features": []}, tmp_path / "bad.json")
+    problems = validate_ravenview_geojson(bad, kind="subbasins")
+    assert any("FeatureCollection" in p for p in problems)
+
+
+def test_validate_flags_empty_features(tmp_path: Path):
+    bad = _write_json(
+        {"type": "FeatureCollection", "features": []}, tmp_path / "empty.json"
+    )
+    assert any("empty" in p for p in validate_ravenview_geojson(bad, kind="subbasins"))
+
+
+def test_validate_flags_out_of_range_coordinates(tmp_path: Path):
+    bad = _write_json(
+        {
+            "type": "FeatureCollection",
+            "features": [{
+                "type": "Feature",
+                "geometry": {"type": "Polygon",
+                             "coordinates": [[[999.0, 0.0], [0.0, 0.0]]]},
+                "properties": {"SubId": 1, "rvhName": "sub1", "DowSubId": "-1",
+                               "BasArea": 1, "rmapshaperid": 0},
+            }],
+        },
+        tmp_path / "badcoords.json",
+    )
+    assert any("longitude" in p for p in validate_ravenview_geojson(bad, kind="subbasins"))
+
+
+def test_validate_flags_missing_required_subbasin_property(tmp_path: Path):
+    bad = _write_json(
+        {
+            "type": "FeatureCollection",
+            "features": [{
+                "type": "Feature",
+                "geometry": {"type": "Polygon",
+                             "coordinates": [[[0.0, 0.0], [1.0, 1.0]]]},
+                "properties": {"SubId": 1},  # missing rvhName/DowSubId/BasArea/rmapshaperid
+            }],
+        },
+        tmp_path / "missingprop.json",
+    )
+    problems = validate_ravenview_geojson(bad, kind="subbasins")
+    assert any("rvhName" in p for p in problems)
+
+
+def test_validate_rejects_unknown_kind(tmp_path: Path):
+    f = _write_json({"type": "FeatureCollection", "features": []}, tmp_path / "x.json")
+    with pytest.raises(ValueError, match="kind must be one of"):
+        validate_ravenview_geojson(f, kind="bogus")
 
 
 # ---------------------------------------------------------------------------
@@ -298,7 +453,7 @@ def test_liard_subbasins_match_sample_schema(
         pytest.skip(f"Source shapefile missing: {src}")
 
     out = tmp_path / "Liard.json"
-    subbasins_to_ravenview_geojson(src, out)
+    subbasins_to_ravenview_geojson(src, out, schema="liard")
     generated = json.loads(out.read_text())
     expected = json.loads((liard_sample_dir / "Liard.json").read_text())
 
@@ -332,7 +487,7 @@ def test_liard_subbasins_match_sample_per_feature(
         pytest.skip(f"Source shapefile missing: {src}")
 
     out = tmp_path / "Liard.json"
-    subbasins_to_ravenview_geojson(src, out)
+    subbasins_to_ravenview_geojson(src, out, schema="liard")
     generated = {
         f["properties"]["Sub_B"]: f["properties"]
         for f in json.loads(out.read_text())["features"]

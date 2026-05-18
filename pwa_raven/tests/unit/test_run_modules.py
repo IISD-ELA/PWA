@@ -218,3 +218,73 @@ def test_raven_inputs_main_prints_optional_outputs_when_present(
     assert "x.rvh.tpl" in out
     assert "aspect_ratios.csv" in out
     assert "HRU areas CSV" in out
+
+
+# ---------------------------------------------------------------------------
+# run_ravenview CLI
+# ---------------------------------------------------------------------------
+
+import geopandas as gpd
+from shapely.geometry import LineString, Polygon
+
+from pwa_raven.run_ravenview import _build_arg_parser as _ravenview_parser
+from pwa_raven.run_ravenview import main as ravenview_main
+
+
+def _write_clrh_subbasins(path: Path) -> Path:
+    gpd.GeoDataFrame(
+        {
+            "SubId": [1, 2],
+            "DowSubId": [2, -1],
+            "BasArea": [1_000_000.0, 2_000_000.0],
+            "geometry": [
+                Polygon([(0, 0), (1, 0), (1, 1), (0, 1), (0, 0)]),
+                Polygon([(1, 0), (2, 0), (2, 1), (1, 1), (1, 0)]),
+            ],
+        },
+        crs="EPSG:4326",
+    ).to_file(path)
+    return path
+
+
+def _write_rivers(path: Path) -> Path:
+    gpd.GeoDataFrame(
+        {"UIDENT": [1], "geometry": [LineString([(0, 0), (1, 1)])]},
+        crs="EPSG:4326",
+    ).to_file(path)
+    return path
+
+
+def test_ravenview_parser_requires_all_inputs():
+    with pytest.raises(SystemExit):
+        _ravenview_parser().parse_args([])  # missing required flags
+
+
+def test_ravenview_main_writes_and_validates(tmp_path: Path, capsys):
+    subs = _write_clrh_subbasins(tmp_path / "subbasins.shp")
+    rivs = _write_rivers(tmp_path / "rivers.shp")
+    out_dir = tmp_path / "RavenView"
+
+    rc = ravenview_main([
+        "--subbasins", str(subs),
+        "--rivers", str(rivs),
+        "--output-dir", str(out_dir),
+        "--watershed-name", "testws",
+    ])
+    assert rc == 0
+    assert (out_dir / "testws.json").is_file()
+    assert (out_dir / "testwsRivers.json").is_file()
+    out = capsys.readouterr().out
+    assert "Validation: OK" in out
+
+
+def test_ravenview_main_errors_on_missing_shapefile(tmp_path: Path, capsys):
+    rivs = _write_rivers(tmp_path / "rivers.shp")
+    rc = ravenview_main([
+        "--subbasins", str(tmp_path / "absent.shp"),
+        "--rivers", str(rivs),
+        "--output-dir", str(tmp_path / "out"),
+        "--watershed-name", "testws",
+    ])
+    assert rc == 1
+    assert "not found" in capsys.readouterr().err
