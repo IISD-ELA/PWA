@@ -29,11 +29,13 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import re
 from pathlib import Path
 from typing import Iterable
 
 import geopandas as gpd
+import pandas as pd
 import shapely
 from shapely.geometry import mapping
 
@@ -66,6 +68,27 @@ def _parse_sub_int(value: object, *, field: str) -> int:
     return int(match.group(1))
 
 
+def _json_safe(value: object) -> object:
+    """Coerce a shapefile cell value to a strict-JSON-safe Python scalar.
+
+    numpy scalars become plain Python; pandas NA / NaT and non-finite
+    floats (``NaN``, ``inf``) become ``None``. The last part matters:
+    ``json.dumps`` would otherwise emit the bare tokens ``NaN`` /
+    ``Infinity``, which are invalid JSON — RavenView's browser-side
+    ``JSON.parse`` rejects them and the whole file silently fails to load.
+    """
+    if hasattr(value, "item"):  # numpy scalar → plain Python
+        value = value.item()
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass  # non-scalar (shouldn't happen for a cell) — leave as-is
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    return value
+
+
 def _round_coords(geom_mapping: dict, precision: int) -> dict:
     """Recursively round all coordinate floats in a GeoJSON geometry mapping."""
 
@@ -88,7 +111,13 @@ def _write_geojson(features: list[dict], output_path: Path | str) -> Path:
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     payload = {"type": "FeatureCollection", "features": features}
-    output_path.write_text(json.dumps(payload, separators=(", ", ": ")))
+    # allow_nan=False: refuse to emit the non-standard NaN / Infinity
+    # tokens. Property values are sanitised by _json_safe upstream, so
+    # this should never trigger — but if it does, failing loud here beats
+    # writing a file that RavenView's JSON.parse silently rejects.
+    output_path.write_text(
+        json.dumps(payload, separators=(", ", ": "), allow_nan=False)
+    )
     logger.info("Wrote %d features → %s", len(features), output_path)
     return output_path
 
@@ -140,12 +169,7 @@ def _build_subbasin_feature(
             raise KeyError(
                 f"Subbasin shapefile is missing required column: {key!r}"
             )
-        value = row[key]
-        # geopandas hands us numpy scalars; coerce to plain Python types
-        # so json.dumps doesn't choke.
-        if hasattr(value, "item"):
-            value = value.item()
-        properties[key] = value
+        properties[key] = _json_safe(row[key])
 
     properties["SubId"] = sub_id
     properties["rvhName"] = str(row["Sub_B"])
@@ -188,10 +212,7 @@ def _build_subbasin_feature_clrh(
     for key in row.index:
         if key == "geometry":
             continue
-        value = row[key]
-        if hasattr(value, "item"):  # numpy scalar → plain Python
-            value = value.item()
-        properties[key] = value
+        properties[key] = _json_safe(row[key])
 
     properties["SubId"] = sub_id
     # The Raven .rvh names each subbasin "sub<SubId>"; mirror that.
@@ -278,10 +299,7 @@ def _build_river_feature(row: gpd.GeoSeries, coord_precision: int) -> dict:
     for key in row.index:
         if key == "geometry":
             continue
-        value = row[key]
-        if hasattr(value, "item"):
-            value = value.item()
-        properties[key] = value
+        properties[key] = _json_safe(row[key])
 
     geom_mapping = mapping(row.geometry)
     if coord_precision is not None:
@@ -433,8 +451,15 @@ def validate_ravenview_geojson(path: Path | str, *, kind: str) -> list[str]:
             f"kind must be one of {sorted(_VALID_GEOMETRY_TYPES)}, got {kind!r}"
         )
 
+    # Python's json.loads accepts NaN / Infinity by default; a browser's
+    # JSON.parse does not. parse_constant fires for exactly those tokens,
+    # so we can flag a file that would silently fail to load in RavenView.
+    invalid_constants: list[str] = []
     try:
-        payload = json.loads(Path(path).read_text())
+        payload = json.loads(
+            Path(path).read_text(),
+            parse_constant=lambda c: invalid_constants.append(c) or None,
+        )
     except (OSError, json.JSONDecodeError) as exc:
         return [f"cannot read/parse {path}: {exc}"]
 
@@ -442,6 +467,12 @@ def validate_ravenview_geojson(path: Path | str, *, kind: str) -> list[str]:
         return [f"top level is {type(payload).__name__}, expected an object"]
 
     problems: list[str] = []
+    if invalid_constants:
+        problems.append(
+            f"file contains non-standard JSON tokens "
+            f"{sorted(set(invalid_constants))} — RavenView's JSON.parse "
+            "rejects NaN / Infinity; the file will not load"
+        )
     if payload.get("type") != "FeatureCollection":
         problems.append(
             f"top-level 'type' is {payload.get('type')!r}, expected 'FeatureCollection'"

@@ -19,6 +19,7 @@ from shapely.geometry import LineString, Polygon
 
 from pwa_raven.raven import ravenview
 from pwa_raven.raven.ravenview import (
+    _json_safe,
     _parse_sub_int,
     _round_coords,
     rivers_to_ravenview_geojson,
@@ -436,6 +437,67 @@ def test_validate_rejects_unknown_kind(tmp_path: Path):
     f = _write_json({"type": "FeatureCollection", "features": []}, tmp_path / "x.json")
     with pytest.raises(ValueError, match="kind must be one of"):
         validate_ravenview_geojson(f, kind="bogus")
+
+
+def test_validate_flags_nan_tokens(tmp_path: Path):
+    """A literal NaN token parses in Python but not in a browser's
+    JSON.parse — the validator must flag it."""
+    bad = tmp_path / "nan.json"
+    bad.write_text(
+        '{"type": "FeatureCollection", "features": [{"type": "Feature", '
+        '"geometry": {"type": "Polygon", "coordinates": [[[0.0, 0.0], [1.0, 1.0]]]}, '
+        '"properties": {"SubId": 1, "rvhName": "sub1", "DowSubId": "-1", '
+        '"BasArea": NaN, "rmapshaperid": 0}}]}'
+    )
+    problems = validate_ravenview_geojson(bad, kind="subbasins")
+    assert any("NaN" in p for p in problems)
+
+
+# ---------------------------------------------------------------------------
+# JSON-safety — non-finite / NA values must never reach the output
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+def test_json_safe_converts_non_finite_to_none(bad):
+    assert _json_safe(bad) is None
+
+
+def test_json_safe_converts_pandas_na_to_none():
+    import pandas as pd
+    assert _json_safe(pd.NA) is None
+
+
+def test_json_safe_passes_finite_values_through():
+    assert _json_safe(3.14) == 3.14
+    assert _json_safe(42) == 42
+    assert _json_safe("text") == "text"
+
+
+def test_clrh_subbasins_sanitize_nan_to_null(tmp_path: Path):
+    """A NaN cell in the source shapefile must serialize as JSON null —
+    never the non-standard NaN token, which RavenView's JSON.parse
+    rejects (silently failing the whole upload)."""
+    import numpy as np
+
+    gdf = gpd.GeoDataFrame(
+        {
+            "SubId": [1],
+            "DowSubId": [-1],
+            "BasArea": [1_000_000.0],
+            "Q_Mean": [np.nan],   # missing value in a numeric column
+            "geometry": [Polygon([(0, 0), (1, 0), (1, 1), (0, 1), (0, 0)])],
+        },
+        crs="EPSG:4326",
+    )
+    src = _write_shapefile(gdf, tmp_path / "clrh.shp")
+    out = tmp_path / "sub.json"
+    subbasins_to_ravenview_geojson(src, out)
+
+    text = out.read_text()
+    assert "NaN" not in text
+    props = json.loads(text)["features"][0]["properties"]
+    assert props["Q_Mean"] is None
 
 
 # ---------------------------------------------------------------------------
