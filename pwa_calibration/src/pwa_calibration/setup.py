@@ -154,6 +154,13 @@ def _round_sig(values, sig: int = 8) -> list[float]:
 # ---------------------------------------------------------------------------
 
 
+# SPOTPY sampler algorithms wired up in run_calibration. Each name must be
+# an attribute of `spotpy.algorithms`. Algorithm-specific knobs (e.g.
+# `subsets` for rope, `nChains` for demcz) are passed through
+# CalibrationConfig.algorithm_kwargs to the sampler's .sample() call.
+ALGORITHMS = ("mc", "rope", "demcz")
+
+
 @dataclass(frozen=True)
 class CalibrationConfig:
     """Immutable calibration configuration.
@@ -205,6 +212,9 @@ class CalibrationConfig:
     phydap_adj: bool = True
     split_areas: str = "none"
     mpi_cores: int = 0
+    repetitions: int = 10
+    algorithm: str = "mc"
+    algorithm_kwargs: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         # Force calib_dir to a Path with no trailing separator.
@@ -212,6 +222,15 @@ class CalibrationConfig:
         if self.obj_fn not in OBJECTIVES:
             raise ValueError(
                 f"Unsupported obj_fn {self.obj_fn!r}. Choose from {sorted(OBJECTIVES)}."
+            )
+        if self.repetitions < 1:
+            raise ValueError(
+                f"repetitions must be >= 1, got {self.repetitions}."
+            )
+        if self.algorithm not in ALGORITHMS:
+            raise ValueError(
+                f"Unsupported algorithm {self.algorithm!r}. "
+                f"Choose from {sorted(ALGORITHMS)}."
             )
         split = self.split_areas.lower()
         if split in ("clrh", "phydap"):
@@ -292,6 +311,9 @@ class CalibrationConfig:
             "phydap_adj": self.phydap_adj,
             "split_areas": self.split_areas,
             "mpi_cores": self.mpi_cores,
+            "repetitions": self.repetitions,
+            "algorithm": self.algorithm,
+            "algorithm_kwargs": dict(self.algorithm_kwargs),
         }
 
     @classmethod
@@ -328,6 +350,9 @@ class CalibrationConfig:
             phydap_adj=data.get("phydap_adj", defaults.phydap_adj),
             split_areas=data.get("split_areas", defaults.split_areas),
             mpi_cores=data.get("mpi_cores", defaults.mpi_cores),
+            repetitions=data.get("repetitions", defaults.repetitions),
+            algorithm=data.get("algorithm", defaults.algorithm),
+            algorithm_kwargs=data.get("algorithm_kwargs") or {},
         )
 
     def to_yaml(self, path: Path | str) -> Path:

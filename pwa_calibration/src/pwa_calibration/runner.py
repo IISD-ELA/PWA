@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Optional
 
 from .prepare import StagingPaths, prepare_calibration_directory
-from .setup import CalibrationConfig, SpotPySetup
+from .setup import ALGORITHMS, CalibrationConfig, SpotPySetup
 
 logger = logging.getLogger(__name__)
 
@@ -107,12 +107,11 @@ def _build_dbname(suffix: str) -> str:
 
 def run_calibration(
     config: CalibrationConfig,
-    repetitions: int,
     db_suffix: str,
+    *,
+    repetitions: Optional[int] = None,
     db_format: str = "csv",
     save_sim: bool = True,
-    algorithm: str = "mc",
-    *,
     staging: Optional[StagingPaths] = None,
 ) -> str:
     """Run a SPOTPY sampler against the given calibration config.
@@ -120,21 +119,21 @@ def run_calibration(
     Parameters
     ----------
     config
-        Calibration configuration (see :class:`CalibrationConfig`).
-    repetitions
-        Number of sampler iterations.
+        Calibration configuration (see :class:`CalibrationConfig`). The
+        sampler algorithm, per-algorithm kwargs, repetition count, and
+        serial/MPI mode are all read from here.
     db_suffix
         Trailing portion of the dbname (e.g. ``"results"``); the prefix
         is the current ``YYYYMMDD_HH`` timestamp.
+    repetitions
+        Number of sampler iterations. When ``None`` (the default), uses
+        ``config.repetitions``. An explicit value overrides the config —
+        convenient for a quick notebook re-run without rebuilding the
+        config object.
     db_format
         SPOTPY database format (``"csv"``, ``"sql"``, ``"hdf5"``, ...).
     save_sim
         If True, persist the per-sample simulation series.
-    algorithm
-        Currently only ``"mc"`` is wired up (matches the legacy
-        ``3_calibrate.py``). The script comment in the original noted
-        that ROPE "flattens the parameter space and collapses",
-        so MC was the intentional default.
     staging
         Optional :class:`~pwa_calibration.prepare.StagingPaths`. When
         provided, runs :func:`prepare_calibration_directory` to copy
@@ -171,26 +170,40 @@ def run_calibration(
 
     patch_rope_get_best_runs()
 
+    reps = repetitions if repetitions is not None else config.repetitions
     dbname = _build_dbname(db_suffix)
-    logger.info("Starting calibration → dbname=%s.%s", dbname, db_format)
+
+    # spotpy's parallel="mpi" path requires the process to be launched
+    # under mpirun. A serial run (mpi_cores 0 or 1) must use "seq" — using
+    # "mpi" there either crashes (mpi4py not installed) or hangs forever
+    # waiting for worker ranks that were never spawned.
+    parallel = "mpi" if config.is_mpi else "seq"
+
+    try:
+        sampler_cls = getattr(alg, config.algorithm)
+    except AttributeError as exc:
+        raise ValueError(
+            f"spotpy.algorithms has no {config.algorithm!r}; "
+            f"supported algorithms: {sorted(ALGORITHMS)}."
+        ) from exc
+
+    logger.info(
+        "Starting %s calibration (parallel=%s) → dbname=%s.%s",
+        config.algorithm, parallel, dbname, db_format,
+    )
 
     setup = SpotPySetup(config)
-
-    if algorithm != "mc":
-        raise ValueError(
-            f"Algorithm {algorithm!r} not wired up. Use 'mc' (matches "
-            "the legacy 3_calibrate.py default)."
-        )
-
-    sampler = alg.mc(
+    sampler = sampler_cls(
         setup,
-        parallel="mpi",
+        parallel=parallel,
         dbname=dbname,
         dbformat=db_format,
         save_sim=save_sim,
     )
-    sampler.sample(repetitions)
-    logger.info("Calibration complete: %d repetitions written to %s", repetitions, dbname)
+    # Algorithm-specific knobs (rope's `subsets`, demcz's `nChains`, ...)
+    # ride along via config.algorithm_kwargs — mc takes none.
+    sampler.sample(reps, **config.algorithm_kwargs)
+    logger.info("Calibration complete: %d repetitions written to %s", reps, dbname)
     return dbname
 
 
@@ -240,10 +253,13 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument("--obj-fn", default=None, choices=["kge_adj", "nse", "nse_pbias"])
+    parser.add_argument("--algorithm", default=None, choices=list(ALGORITHMS))
     parser.add_argument("--eval-start-yr", type=int, default=None)
     parser.add_argument("--eval-end-yr", type=int, default=None)
     parser.add_argument("--mpi-cores", type=int, default=None)
-    parser.add_argument("--repetitions", type=int, default=10)
+    # Default None (not 10) so an explicit --repetitions can be told apart
+    # from "not passed" — only then does it override the YAML value.
+    parser.add_argument("--repetitions", type=int, default=None)
     parser.add_argument("--no-spring-eval", action="store_true")
     parser.add_argument("--low-seep", action="store_true")
     parser.add_argument("--routing", action="store_true")
@@ -305,6 +321,10 @@ def _build_config_from_args(args: argparse.Namespace) -> CalibrationConfig:
         overrides["calib_dir"] = args.calib_dir
     if args.obj_fn is not None:
         overrides["obj_fn"] = args.obj_fn
+    if args.algorithm is not None:
+        overrides["algorithm"] = args.algorithm
+    if args.repetitions is not None:
+        overrides["repetitions"] = args.repetitions
     if args.eval_start_yr is not None:
         overrides["eval_start_yr"] = args.eval_start_yr
     if args.eval_end_yr is not None:
@@ -358,9 +378,10 @@ def main(argv: Optional[list[str]] = None) -> int:
             netcdf_category=args.netcdf_category,
         )
 
+    # repetitions / algorithm already merged into `config` by
+    # _build_config_from_args — run_calibration reads them from there.
     run_calibration(
         config=config,
-        repetitions=args.repetitions,
         db_suffix=args.db_suffix,
         staging=staging,
     )

@@ -63,7 +63,33 @@ split_areas: none
 
 # ---- MPI parallelism --------------------------------------------------
 
-# 0 or 1 = serial (single working directory).
-# >=2 = each rank gets its own {calib_dir}_mpi/core{N}/ working copy.
-# Set this to match your `mpirun -c <N>` value.
+# 0 or 1 = serial (single working directory). The sampler runs with
+#          SPOTPY parallel="seq" — no mpirun, no mpi4py needed.
+# >=2    = each rank gets its own {calib_dir}_mpi/core{N}/ working copy,
+#          and the sampler runs with parallel="mpi". You MUST launch the
+#          process under mpirun for this to work:
+#              mpirun -c <N> python -m pwa_calibration.runner <SUFFIX> \
+#                  --config calibration.yml
+#          Set mpi_cores to match your `mpirun -c <N>` value. Setting
+#          mpi_cores >= 2 without launching under mpirun will hang at
+#          "Initializing the ... sampler".
 mpi_cores: 0
+
+# ---- Sampler ----------------------------------------------------------
+
+# Number of SPOTPY sampler iterations. Overridable at the CLI with
+# --repetitions (the flag wins over this value when both are given).
+repetitions: 10
+
+# SPOTPY algorithm. One of:
+#   mc     - Monte Carlo (default; the legacy 3_calibrate.py algorithm)
+#   rope   - RObust Parameter Estimation
+#   demcz  - Differential Evolution Markov Chain
+algorithm: mc
+
+# Algorithm-specific keyword arguments passed to the sampler's .sample()
+# call. `mc` takes none. Examples for the others:
+#   rope:   {subsets: 5, percentage_first_run: 0.10}
+#   demcz:  {nChains: 5, burnIn: 100}
+# Leave empty ({}) for mc.
+algorithm_kwargs: {}
