@@ -68,6 +68,64 @@ def test_rvp_update_without_channel_scale(tmp_path: Path) -> None:
     assert "0.001000" in result
 
 
+def _setup_rvh_tpl(tmp_path: Path) -> RavenFile:
+    """Create a minimal .rvh template and return a RavenFile pointing at it."""
+    tpl_dir = tmp_path / "templates"
+    tpl_dir.mkdir()
+    (tpl_dir / "model.rvh.tpl").write_text(
+        "seep_fact\nH101_area\ntc_101\ntp_101\nqref_101\n"
+    )
+    return RavenFile("model", calib_dir=tmp_path, extension="rvh")
+
+
+def test_rvh_update_substitutes_qref_with_routing_off(tmp_path: Path) -> None:
+    """qref_<subid> placeholders must be substituted even when routing is
+    off. The placeholder is written into every .rvh.tpl regardless of
+    routing; if it survives, Raven reads the literal 'qref_<id>' token as
+    the reference flow and aborts ('Reference flow must be non-zero')."""
+    rf = _setup_rvh_tpl(tmp_path)
+    rf.rvh_update(
+        "no_split",
+        _routing=False,
+        _channel_scale=False,
+        _param_vector={"seep_k": 0.05, "basin_fact": 1.0},
+        _aspect_ratios={},
+        _HRU_areas={101: 5.0},
+        _tps={101: 2.0},
+        _tcs={101: 3.0},
+        _qrefs={101: 0.5},
+    )
+    result = rf.filepath.read_text()
+    assert "qref_101" not in result, "qref placeholder left unsubstituted"
+    assert "0.5" in result
+
+
+def test_rvh_update_substitutes_qref_with_routing_on(tmp_path: Path) -> None:
+    """Routing on: qref is still substituted, scaled by qref_scale when
+    channel scaling is enabled."""
+    rf = _setup_rvh_tpl(tmp_path)
+    rf.rvh_update(
+        "no_split",
+        _routing=True,
+        _channel_scale=True,
+        _param_vector={
+            "seep_k": 0.05,
+            "basin_fact": 1.0,
+            "t_peak_fact": 1.0,
+            "tc_tp_fact": 1.0,
+            "qref_scale": 2.0,
+        },
+        _aspect_ratios={101: 1.0},
+        _HRU_areas={101: 5.0},
+        _tps={101: 2.0},
+        _tcs={101: 3.0},
+        _qrefs={101: 0.5},
+    )
+    result = rf.filepath.read_text()
+    assert "qref_101" not in result
+    assert "1.0" in result  # qref_scale 2.0 * qref 0.5
+
+
 def test_rvp_update_rejects_bad_param_set(tmp_path: Path) -> None:
     rf = _setup_rvp_tpl(tmp_path)
     with pytest.raises(ValueError, match="Unrecognized"):
