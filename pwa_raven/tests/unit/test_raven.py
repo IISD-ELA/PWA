@@ -180,6 +180,32 @@ def test_read_sim_returns_series(tmp_path: Path) -> None:
     assert len(sim) > 0
 
 
+def test_hydrograph_raises_clearly_when_no_csv(tmp_path: Path) -> None:
+    """A failed Raven run leaves an empty output dir. RavenHydrograph must
+    raise a clear 'produced no output' error — not return an empty frame
+    that detonates later as a cryptic KeyError: 'date_time'."""
+    (tmp_path / "output").mkdir()
+    with pytest.raises(FileNotFoundError, match="produced no output"):
+        RavenHydrograph(tmp_path)
+
+
+def test_hydrograph_raises_clearly_when_output_dir_absent(tmp_path: Path) -> None:
+    """No output directory at all → the same clear error, not a bare
+    FileNotFoundError from iterdir()."""
+    with pytest.raises(FileNotFoundError, match="No Raven hydrograph CSV"):
+        RavenHydrograph(tmp_path)
+
+
+def test_hydrograph_raises_on_truncated_csv(tmp_path: Path) -> None:
+    """A hydrograph CSV missing the date/hour columns (truncated / partial
+    Raven failure) → a clear error naming the missing columns."""
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+    pd.DataFrame({"junk": [1, 2]}).to_csv(output_dir / "Hydrographs.csv", index=False)
+    with pytest.raises(ValueError, match="missing expected column"):
+        RavenHydrograph(tmp_path)
+
+
 def test_read_sim_raises_on_missing_column(tmp_path: Path) -> None:
     """Missing column → clear ValueError. The original left ``simulated``
     unassigned and crashed with ``UnboundLocalError``."""

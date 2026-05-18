@@ -83,18 +83,34 @@ class RavenHydrograph:
 
     def _read_hydrograph(self) -> pd.DataFrame:
         output_dir = self.rv_path / f"output{self.run_id}"
+
         output_csv = None
+        if output_dir.is_dir():
+            for file in output_dir.iterdir():
+                if file.suffix == ".csv" and "hydrographs" in file.name.lower():
+                    output_csv = file
+                    break
 
-        for file in output_dir.iterdir():
-            if file.suffix == ".csv" and "hydrographs" in file.name.lower():
-                output_csv = file
-                break
-
-        if output_csv is None or not output_csv.is_file():
-            logger.warning("No hydrograph CSV found in %s", output_dir)
-            return pd.DataFrame()
+        # A missing hydrograph CSV means the Raven run produced no output —
+        # almost always because the run failed. Raise here with the real
+        # cause rather than returning an empty frame, which would only
+        # detonate later as a cryptic 'KeyError: date_time' in _filter_eval.
+        if output_csv is None:
+            raise FileNotFoundError(
+                f"No Raven hydrograph CSV (*Hydrographs*.csv) found in "
+                f"{output_dir}. The Raven run produced no output — it most "
+                "likely failed; check Raven's stdout/stderr above for the "
+                "model error."
+            )
 
         df = pd.read_csv(output_csv)
+        missing = [c for c in ("date", "hour") if c not in df.columns]
+        if missing:
+            raise ValueError(
+                f"Raven hydrograph CSV {output_csv.name} is missing expected "
+                f"column(s) {missing} — the file may be truncated, or the "
+                "Raven run failed partway. Check Raven's output."
+            )
         df["date_time"] = pd.to_datetime(df["date"] + " " + df["hour"], errors="coerce")
         logger.info("Loaded hydrograph from %s", output_csv.name)
         return df
