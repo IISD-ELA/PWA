@@ -631,15 +631,22 @@ class SpotPySetup:
             else:
                 raise ValueError(f"Unsupported file extension: {ext}")
 
+        # The .rvt always references the _adj.nc forcing file (the
+        # calibration staging rewrites every .nc reference to _adj.nc),
+        # so _adj.nc must always exist. When phydap_adj is on it is the
+        # runoff-offset-shifted forcing; when off it is an unshifted
+        # copy (offset 0). Skipping its creation — as the code used to
+        # when phydap_adj was off — left the .rvt pointing at a file
+        # that was never written.
+        template_path = _find_nc_template(sim_dir / "input")
+        adj_path = _adj_path_from_template(template_path)
         if self.config.phydap_adj:
-            template_path = _find_nc_template(sim_dir / "input")
-            adj_path = _adj_path_from_template(template_path)
-            logger.info("Applying PhyDAP offset to %s", template_path)
-            netcdf.time_offset(
-                template_path,
-                adj_path,
-                offset=float(np.round(rounded["runoff_offset"])),
-            )
+            offset = float(np.round(rounded["runoff_offset"]))
+            logger.info("Applying PhyDAP runoff offset %s h to %s", offset, template_path.name)
+        else:
+            offset = 0.0
+            logger.info("phydap_adj off — writing unshifted forcing %s", adj_path.name)
+        netcdf.time_offset(template_path, adj_path, offset=offset)
 
         raven_runner.run_raven(self.config.model_name, sim_dir)
 
