@@ -29,11 +29,13 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import re
 from pathlib import Path
 from typing import Iterable
 
 import geopandas as gpd
+import pandas as pd
 import shapely
 from shapely.geometry import mapping
 
@@ -66,6 +68,27 @@ def _parse_sub_int(value: object, *, field: str) -> int:
     return int(match.group(1))
 
 
+def _json_safe(value: object) -> object:
+    """Coerce a shapefile cell value to a strict-JSON-safe Python scalar.
+
+    numpy scalars become plain Python; pandas NA / NaT and non-finite
+    floats (``NaN``, ``inf``) become ``None``. The last part matters:
+    ``json.dumps`` would otherwise emit the bare tokens ``NaN`` /
+    ``Infinity``, which are invalid JSON — RavenView's browser-side
+    ``JSON.parse`` rejects them and the whole file silently fails to load.
+    """
+    if hasattr(value, "item"):  # numpy scalar → plain Python
+        value = value.item()
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass  # non-scalar (shouldn't happen for a cell) — leave as-is
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    return value
+
+
 def _round_coords(geom_mapping: dict, precision: int) -> dict:
     """Recursively round all coordinate floats in a GeoJSON geometry mapping."""
 
@@ -88,7 +111,13 @@ def _write_geojson(features: list[dict], output_path: Path | str) -> Path:
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     payload = {"type": "FeatureCollection", "features": features}
-    output_path.write_text(json.dumps(payload, separators=(", ", ": ")))
+    # allow_nan=False: refuse to emit the non-standard NaN / Infinity
+    # tokens. Property values are sanitised by _json_safe upstream, so
+    # this should never trigger — but if it does, failing loud here beats
+    # writing a file that RavenView's JSON.parse silently rejects.
+    output_path.write_text(
+        json.dumps(payload, separators=(", ", ": "), allow_nan=False)
+    )
     logger.info("Wrote %d features → %s", len(features), output_path)
     return output_path
 
@@ -140,12 +169,7 @@ def _build_subbasin_feature(
             raise KeyError(
                 f"Subbasin shapefile is missing required column: {key!r}"
             )
-        value = row[key]
-        # geopandas hands us numpy scalars; coerce to plain Python types
-        # so json.dumps doesn't choke.
-        if hasattr(value, "item"):
-            value = value.item()
-        properties[key] = value
+        properties[key] = _json_safe(row[key])
 
     properties["SubId"] = sub_id
     properties["rvhName"] = str(row["Sub_B"])
@@ -167,10 +191,61 @@ def _build_subbasin_feature(
     }
 
 
+def _build_subbasin_feature_clrh(
+    row: gpd.GeoSeries,
+    rmapshaperid: int,
+    coord_precision: int,
+) -> dict:
+    """Build a RavenView subbasin feature from a CLRH-hydrofabric row.
+
+    The CLRH schema — the PWA pipeline's own Step 0/2 subbasin output —
+    already carries ``SubId``, ``DowSubId`` and ``BasArea`` under those
+    exact names, so (unlike the Liard reference path) nothing is
+    renamed. ``rvhName`` and ``rmapshaperid`` are derived; every other
+    source column rides along verbatim as an extra property. RavenView
+    ignores properties it doesn't use, so a superset is safe.
+    """
+    sub_id = _parse_sub_int(row["SubId"], field="SubId")
+    dow_sub_id = _parse_sub_int(row["DowSubId"], field="DowSubId")
+
+    properties: dict = {}
+    for key in row.index:
+        if key == "geometry":
+            continue
+        properties[key] = _json_safe(row[key])
+
+    properties["SubId"] = sub_id
+    # The Raven .rvh names each subbasin "sub<SubId>"; mirror that.
+    properties["rvhName"] = f"sub{sub_id}"
+    properties["DowSubId"] = str(dow_sub_id)
+    # CLRH BasArea is carried through as-is. Its unit / derivation is the
+    # subject of client-questions Q-002 — confirm against RavenView.
+    properties["BasArea"] = int(round(float(row["BasArea"])))
+    properties["rmapshaperid"] = rmapshaperid
+
+    geom_mapping = mapping(row.geometry)
+    if coord_precision is not None:
+        geom_mapping = _round_coords(geom_mapping, coord_precision)
+
+    return {
+        "type": "Feature",
+        "geometry": geom_mapping,
+        "properties": properties,
+    }
+
+
+# Subbasin feature builders keyed by source-shapefile schema.
+_SUBBASIN_BUILDERS = {
+    "clrh": _build_subbasin_feature_clrh,   # PWA pipeline output
+    "liard": _build_subbasin_feature,       # Liard reference sample
+}
+
+
 def subbasins_to_ravenview_geojson(
     shapefile_path: Path | str,
     output_path: Path | str,
     *,
+    schema: str = "clrh",
     coord_precision: int = DEFAULT_COORD_PRECISION,
 ) -> Path:
     """Convert a Raven subbasin shapefile to RavenView GeoJSON.
@@ -178,10 +253,14 @@ def subbasins_to_ravenview_geojson(
     Parameters
     ----------
     shapefile_path
-        Path to a ``.shp`` whose attribute table includes the columns
-        listed in :data:`_SUBBASIN_PASSTHROUGH_PROPERTIES`.
+        Path to a subbasin ``.shp``.
     output_path
         Where to write the resulting ``.json`` (parent is created).
+    schema
+        Source-shapefile schema: ``"clrh"`` (default — the PWA pipeline's
+        Step 0/2 output, with native ``SubId``/``DowSubId``/``BasArea``)
+        or ``"liard"`` (the Liard reference sample, with ``Sub_B``/
+        ``Downstream``/``Area``).
     coord_precision
         Decimal places to round each coordinate to (default 4 — matches
         the sample). Pass ``None`` to keep full precision.
@@ -190,9 +269,16 @@ def subbasins_to_ravenview_geojson(
     -------
     The output path written.
     """
+    try:
+        builder = _SUBBASIN_BUILDERS[schema]
+    except KeyError:
+        raise ValueError(
+            f"Unknown subbasin schema {schema!r}; "
+            f"choose from {sorted(_SUBBASIN_BUILDERS)}."
+        )
     gdf = _load_and_reproject(shapefile_path)
     features = [
-        _build_subbasin_feature(row, rmapshaperid=idx, coord_precision=coord_precision)
+        builder(row, rmapshaperid=idx, coord_precision=coord_precision)
         for idx, (_, row) in enumerate(gdf.iterrows())
     ]
     return _write_geojson(features, output_path)
@@ -213,10 +299,7 @@ def _build_river_feature(row: gpd.GeoSeries, coord_precision: int) -> dict:
     for key in row.index:
         if key == "geometry":
             continue
-        value = row[key]
-        if hasattr(value, "item"):
-            value = value.item()
-        properties[key] = value
+        properties[key] = _json_safe(row[key])
 
     geom_mapping = mapping(row.geometry)
     if coord_precision is not None:
@@ -273,9 +356,14 @@ def export_for_ravenview(
     rivers_shapefile: Path | str,
     output_dir: Path | str,
     watershed_name: str,
+    schema: str = "clrh",
     coord_precision: int = DEFAULT_COORD_PRECISION,
 ) -> tuple[Path, Path]:
     """Run both converters and write to ``<output_dir>/{name,Rivers}.json``.
+
+    *schema* selects the subbasin source schema (``"clrh"`` for PWA
+    pipeline output, ``"liard"`` for the reference sample). Rivers are
+    schema-agnostic — their properties pass through verbatim.
 
     Returns ``(subbasin_path, rivers_path)``.
     """
@@ -283,6 +371,7 @@ def export_for_ravenview(
     sub_path = subbasins_to_ravenview_geojson(
         subbasin_shapefile,
         output_dir / f"{watershed_name}.json",
+        schema=schema,
         coord_precision=coord_precision,
     )
     riv_path = rivers_to_ravenview_geojson(
@@ -291,3 +380,143 @@ def export_for_ravenview(
         coord_precision=coord_precision,
     )
     return sub_path, riv_path
+
+
+# ---------------------------------------------------------------------------
+# Validation
+# ---------------------------------------------------------------------------
+
+
+# Geometry types RavenView accepts, per the known-good Liard sample.
+_VALID_GEOMETRY_TYPES = {
+    "subbasins": {"Polygon", "MultiPolygon"},
+    "rivers": {"LineString", "MultiLineString"},
+}
+
+# Properties every subbasin feature in the Liard sample carries. RavenView
+# relies on these; extra properties are harmless, but a missing one is a
+# structural divergence from the confirmed-working sample.
+_REQUIRED_SUBBASIN_PROPERTIES = (
+    "SubId", "rvhName", "DowSubId", "BasArea", "rmapshaperid",
+)
+
+
+def _coord_problems(coords: object, path: str) -> list[str]:
+    """Recursively check that every [lon, lat] pair sits in WGS84 range."""
+    if (
+        isinstance(coords, list)
+        and len(coords) == 2
+        and all(isinstance(c, (int, float)) for c in coords)
+    ):
+        lon, lat = coords
+        out: list[str] = []
+        if not -180 <= lon <= 180:
+            out.append(f"{path}: longitude {lon} outside [-180, 180]")
+        if not -90 <= lat <= 90:
+            out.append(f"{path}: latitude {lat} outside [-90, 90]")
+        return out
+    if isinstance(coords, list):
+        nested: list[str] = []
+        for i, item in enumerate(coords):
+            nested.extend(_coord_problems(item, f"{path}[{i}]"))
+        return nested
+    return [f"{path}: expected a coordinate list, got {type(coords).__name__}"]
+
+
+def validate_ravenview_geojson(path: Path | str, *, kind: str) -> list[str]:
+    """Structurally validate a RavenView GeoJSON file.
+
+    Checks conformance to the shape of the known-good Liard sample —
+    the only confirmed-working RavenView input we have: a
+    ``FeatureCollection`` of ``Feature`` objects with valid geometry,
+    WGS84 coordinates, and (for subbasins) the required property keys.
+
+    Parameters
+    ----------
+    path
+        The ``.json`` file to validate.
+    kind
+        ``"subbasins"`` or ``"rivers"`` — selects the allowed geometry
+        types and whether subbasin properties are required.
+
+    Returns
+    -------
+    A list of human-readable problem strings; an empty list means the
+    file is structurally valid. This does NOT prove RavenView will
+    render it — only an actual RavenView load confirms that — but it
+    catches every structural divergence from the known-good sample.
+    """
+    if kind not in _VALID_GEOMETRY_TYPES:
+        raise ValueError(
+            f"kind must be one of {sorted(_VALID_GEOMETRY_TYPES)}, got {kind!r}"
+        )
+
+    # Python's json.loads accepts NaN / Infinity by default; a browser's
+    # JSON.parse does not. parse_constant fires for exactly those tokens,
+    # so we can flag a file that would silently fail to load in RavenView.
+    invalid_constants: list[str] = []
+    try:
+        payload = json.loads(
+            Path(path).read_text(),
+            parse_constant=lambda c: invalid_constants.append(c) or None,
+        )
+    except (OSError, json.JSONDecodeError) as exc:
+        return [f"cannot read/parse {path}: {exc}"]
+
+    if not isinstance(payload, dict):
+        return [f"top level is {type(payload).__name__}, expected an object"]
+
+    problems: list[str] = []
+    if invalid_constants:
+        problems.append(
+            f"file contains non-standard JSON tokens "
+            f"{sorted(set(invalid_constants))} — RavenView's JSON.parse "
+            "rejects NaN / Infinity; the file will not load"
+        )
+    if payload.get("type") != "FeatureCollection":
+        problems.append(
+            f"top-level 'type' is {payload.get('type')!r}, expected 'FeatureCollection'"
+        )
+    features = payload.get("features")
+    if not isinstance(features, list):
+        problems.append("'features' is missing or not a list")
+        return problems
+    if not features:
+        problems.append("'features' is empty")
+
+    allowed_geom = _VALID_GEOMETRY_TYPES[kind]
+    for i, feat in enumerate(features):
+        fp = f"features[{i}]"
+        if not isinstance(feat, dict):
+            problems.append(f"{fp}: not an object")
+            continue
+        if feat.get("type") != "Feature":
+            problems.append(f"{fp}.type is {feat.get('type')!r}, expected 'Feature'")
+
+        geom = feat.get("geometry")
+        if not isinstance(geom, dict):
+            problems.append(f"{fp}.geometry: missing or not an object")
+        else:
+            gtype = geom.get("type")
+            if gtype not in allowed_geom:
+                problems.append(
+                    f"{fp}.geometry.type is {gtype!r}, expected one of "
+                    f"{sorted(allowed_geom)}"
+                )
+            if "coordinates" in geom:
+                problems.extend(
+                    _coord_problems(geom["coordinates"], f"{fp}.geometry.coordinates")
+                )
+            else:
+                problems.append(f"{fp}.geometry: no 'coordinates'")
+
+        props = feat.get("properties")
+        if not isinstance(props, dict):
+            problems.append(f"{fp}.properties: missing or not an object")
+        elif kind == "subbasins":
+            for key in _REQUIRED_SUBBASIN_PROPERTIES:
+                if key not in props:
+                    problems.append(
+                        f"{fp}.properties: missing required key {key!r}"
+                    )
+    return problems

@@ -362,3 +362,126 @@ def test_cli_without_config_or_required_fields_exits(tmp_path: Path):
     args = parser.parse_args(["x"])  # no --config, no --model-name, no --calib-dir
     with pytest.raises(SystemExit):
         _build_config_from_args(args)
+
+
+# ---------------------------------------------------------------------------
+# parallel= selection, algorithm dispatch, repetitions fallback
+# ---------------------------------------------------------------------------
+
+
+def _install_calibration_stubs(monkeypatch, algo_name: str) -> dict:
+    """Monkeypatch the run_calibration collaborators so it executes without
+    Raven/MPI, and record what the sampler constructor + .sample() received.
+
+    Returns a dict populated with `ctor_kwargs`, `sample_reps`,
+    `sample_kwargs` once run_calibration has been called.
+    """
+    rec: dict = {}
+
+    def fake_cls(_setup, **kwargs):
+        rec["ctor_kwargs"] = kwargs
+
+        class _Sampler:
+            def sample(self, reps, **skwargs):
+                rec["sample_reps"] = reps
+                rec["sample_kwargs"] = skwargs
+
+        return _Sampler()
+
+    monkeypatch.setattr(f"spotpy.algorithms.{algo_name}", fake_cls)
+    monkeypatch.setattr(
+        "pwa_calibration.setup.CalibrationConfig.validate_inputs_exist",
+        lambda self: None,
+    )
+    monkeypatch.setattr("pwa_calibration.runner.SpotPySetup", lambda _c: object())
+    monkeypatch.setattr(
+        "pwa_calibration.runner.patch_rope_get_best_runs", lambda: True
+    )
+    return rec
+
+
+def test_run_calibration_uses_seq_parallel_when_serial(monkeypatch, tmp_path: Path):
+    rec = _install_calibration_stubs(monkeypatch, "mc")
+    cfg = CalibrationConfig(model_name="m", calib_dir=tmp_path, mpi_cores=0)
+    run_calibration(cfg, db_suffix="x")
+    assert rec["ctor_kwargs"]["parallel"] == "seq"
+
+
+def test_run_calibration_uses_mpi_parallel_when_mpi(monkeypatch, tmp_path: Path):
+    rec = _install_calibration_stubs(monkeypatch, "mc")
+    cfg = CalibrationConfig(model_name="m", calib_dir=tmp_path, mpi_cores=4)
+    run_calibration(cfg, db_suffix="x")
+    assert rec["ctor_kwargs"]["parallel"] == "mpi"
+
+
+def test_run_calibration_dispatches_to_configured_algorithm(monkeypatch, tmp_path: Path):
+    rec = _install_calibration_stubs(monkeypatch, "rope")
+    cfg = CalibrationConfig(model_name="m", calib_dir=tmp_path, algorithm="rope")
+    run_calibration(cfg, db_suffix="x")
+    # If dispatch picked the wrong class, the rope recorder would be empty.
+    assert "ctor_kwargs" in rec
+
+
+def test_run_calibration_passes_algorithm_kwargs_to_sample(monkeypatch, tmp_path: Path):
+    rec = _install_calibration_stubs(monkeypatch, "demcz")
+    cfg = CalibrationConfig(
+        model_name="m",
+        calib_dir=tmp_path,
+        algorithm="demcz",
+        algorithm_kwargs={"nChains": 6},
+    )
+    run_calibration(cfg, db_suffix="x")
+    assert rec["sample_kwargs"] == {"nChains": 6}
+
+
+def test_run_calibration_repetitions_falls_back_to_config(monkeypatch, tmp_path: Path):
+    rec = _install_calibration_stubs(monkeypatch, "mc")
+    cfg = CalibrationConfig(model_name="m", calib_dir=tmp_path, repetitions=7)
+    run_calibration(cfg, db_suffix="x")  # no repetitions arg
+    assert rec["sample_reps"] == 7
+
+
+def test_run_calibration_explicit_repetitions_overrides_config(monkeypatch, tmp_path: Path):
+    rec = _install_calibration_stubs(monkeypatch, "mc")
+    cfg = CalibrationConfig(model_name="m", calib_dir=tmp_path, repetitions=99)
+    run_calibration(cfg, db_suffix="x", repetitions=3)
+    assert rec["sample_reps"] == 3
+
+
+# ---------------------------------------------------------------------------
+# CLI: --repetitions / --algorithm flow into the config
+# ---------------------------------------------------------------------------
+
+
+def test_cli_repetitions_default_is_none(tmp_path: Path):
+    """--repetitions must default to None so explicit use is distinguishable
+    from the default (otherwise it would always override the YAML)."""
+    parser = _build_arg_parser()
+    args = parser.parse_args(["x", "--model-name", "m", "--calib-dir", str(tmp_path)])
+    assert args.repetitions is None
+
+
+def test_cli_repetitions_flows_into_config(tmp_path: Path):
+    parser = _build_arg_parser()
+    args = parser.parse_args(
+        ["x", "--model-name", "m", "--calib-dir", str(tmp_path), "--repetitions", "500"]
+    )
+    cfg = _build_config_from_args(args)
+    assert cfg.repetitions == 500
+
+
+def test_cli_algorithm_flows_into_config(tmp_path: Path):
+    parser = _build_arg_parser()
+    args = parser.parse_args(
+        ["x", "--model-name", "m", "--calib-dir", str(tmp_path), "--algorithm", "rope"]
+    )
+    cfg = _build_config_from_args(args)
+    assert cfg.algorithm == "rope"
+
+
+def test_cli_rejects_unknown_algorithm(tmp_path: Path):
+    parser = _build_arg_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(
+            ["x", "--model-name", "m", "--calib-dir", str(tmp_path), "--algorithm", "bogus"]
+        )

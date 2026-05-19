@@ -154,6 +154,13 @@ def _round_sig(values, sig: int = 8) -> list[float]:
 # ---------------------------------------------------------------------------
 
 
+# SPOTPY sampler algorithms wired up in run_calibration. Each name must be
+# an attribute of `spotpy.algorithms`. Algorithm-specific knobs (e.g.
+# `subsets` for rope, `nChains` for demcz) are passed through
+# CalibrationConfig.algorithm_kwargs to the sampler's .sample() call.
+ALGORITHMS = ("mc", "rope", "demcz")
+
+
 @dataclass(frozen=True)
 class CalibrationConfig:
     """Immutable calibration configuration.
@@ -205,6 +212,9 @@ class CalibrationConfig:
     phydap_adj: bool = True
     split_areas: str = "none"
     mpi_cores: int = 0
+    repetitions: int = 10
+    algorithm: str = "mc"
+    algorithm_kwargs: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         # Force calib_dir to a Path with no trailing separator.
@@ -212,6 +222,15 @@ class CalibrationConfig:
         if self.obj_fn not in OBJECTIVES:
             raise ValueError(
                 f"Unsupported obj_fn {self.obj_fn!r}. Choose from {sorted(OBJECTIVES)}."
+            )
+        if self.repetitions < 1:
+            raise ValueError(
+                f"repetitions must be >= 1, got {self.repetitions}."
+            )
+        if self.algorithm not in ALGORITHMS:
+            raise ValueError(
+                f"Unsupported algorithm {self.algorithm!r}. "
+                f"Choose from {sorted(ALGORITHMS)}."
             )
         split = self.split_areas.lower()
         if split in ("clrh", "phydap"):
@@ -292,6 +311,9 @@ class CalibrationConfig:
             "phydap_adj": self.phydap_adj,
             "split_areas": self.split_areas,
             "mpi_cores": self.mpi_cores,
+            "repetitions": self.repetitions,
+            "algorithm": self.algorithm,
+            "algorithm_kwargs": dict(self.algorithm_kwargs),
         }
 
     @classmethod
@@ -328,6 +350,9 @@ class CalibrationConfig:
             phydap_adj=data.get("phydap_adj", defaults.phydap_adj),
             split_areas=data.get("split_areas", defaults.split_areas),
             mpi_cores=data.get("mpi_cores", defaults.mpi_cores),
+            repetitions=data.get("repetitions", defaults.repetitions),
+            algorithm=data.get("algorithm", defaults.algorithm),
+            algorithm_kwargs=data.get("algorithm_kwargs") or {},
         )
 
     def to_yaml(self, path: Path | str) -> Path:
@@ -537,11 +562,14 @@ class SpotPySetup:
         logger.debug("Generated parameters: %s", generated)
         return generated
 
-    def simulation(self, param_vector, exts: Optional[list[str]] = None) -> float:
+    def simulation(self, param_vector, exts: Optional[list[str]] = None) -> list[float]:
         """Run one Raven simulation, return the objective-function value.
 
         ``param_vector`` is the SpotPy ``ParameterSet`` (has ``.random``
         and ``.name`` attributes).
+
+        Returns a single-element ``[value]`` list, not a bare float —
+        SPOTPY's database layer calls ``len()`` on the result.
         """
         if exts is None:
             exts = ["rvp", "rvh"]
@@ -606,15 +634,22 @@ class SpotPySetup:
             else:
                 raise ValueError(f"Unsupported file extension: {ext}")
 
+        # The .rvt always references the _adj.nc forcing file (the
+        # calibration staging rewrites every .nc reference to _adj.nc),
+        # so _adj.nc must always exist. When phydap_adj is on it is the
+        # runoff-offset-shifted forcing; when off it is an unshifted
+        # copy (offset 0). Skipping its creation — as the code used to
+        # when phydap_adj was off — left the .rvt pointing at a file
+        # that was never written.
+        template_path = _find_nc_template(sim_dir / "input")
+        adj_path = _adj_path_from_template(template_path)
         if self.config.phydap_adj:
-            template_path = _find_nc_template(sim_dir / "input")
-            adj_path = _adj_path_from_template(template_path)
-            logger.info("Applying PhyDAP offset to %s", template_path)
-            netcdf.time_offset(
-                template_path,
-                adj_path,
-                offset=float(np.round(rounded["runoff_offset"])),
-            )
+            offset = float(np.round(rounded["runoff_offset"]))
+            logger.info("Applying PhyDAP runoff offset %s h to %s", offset, template_path.name)
+        else:
+            offset = 0.0
+            logger.info("phydap_adj off — writing unshifted forcing %s", adj_path.name)
+        netcdf.time_offset(template_path, adj_path, offset=offset)
 
         raven_runner.run_raven(self.config.model_name, sim_dir)
 
@@ -642,7 +677,14 @@ class SpotPySetup:
             value,
             dict(rounded),
         )
-        return value
+        # Return the objective value wrapped in a single-element list.
+        # This calibration uses the "simulation() returns the metric"
+        # SPOTPY idiom (evaluation() returns the target, objectivefunction()
+        # squeezes it through), but SPOTPY's database layer calls
+        # len(simulations) to build its column header — a bare float has
+        # no len(). The list makes it a one-column "simulation"; the
+        # np.squeeze in objectivefunction still recovers the scalar.
+        return [value]
 
     def evaluation(self):
         """Return the target value for SPOTPY's ``like`` interpretation.

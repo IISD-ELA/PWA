@@ -169,6 +169,57 @@ def test_config_is_frozen(tmp_path: Path):
 
 
 # ---------------------------------------------------------------------------
+# CalibrationConfig — repetitions / algorithm / algorithm_kwargs
+# ---------------------------------------------------------------------------
+
+
+def test_config_repetitions_algorithm_defaults(tmp_path: Path):
+    cfg = CalibrationConfig(model_name="m", calib_dir=tmp_path)
+    assert cfg.repetitions == 10
+    assert cfg.algorithm == "mc"
+    assert cfg.algorithm_kwargs == {}
+
+
+def test_config_rejects_repetitions_below_one(tmp_path: Path):
+    with pytest.raises(ValueError, match="repetitions"):
+        CalibrationConfig(model_name="m", calib_dir=tmp_path, repetitions=0)
+
+
+@pytest.mark.parametrize("algo", ["mc", "rope", "demcz"])
+def test_config_accepts_supported_algorithms(tmp_path: Path, algo: str):
+    cfg = CalibrationConfig(model_name="m", calib_dir=tmp_path, algorithm=algo)
+    assert cfg.algorithm == algo
+
+
+def test_config_rejects_unknown_algorithm(tmp_path: Path):
+    with pytest.raises(ValueError, match="algorithm"):
+        CalibrationConfig(model_name="m", calib_dir=tmp_path, algorithm="sceua_typo")
+
+
+def test_config_round_trips_repetitions_algorithm_kwargs(tmp_path: Path):
+    cfg = CalibrationConfig(
+        model_name="m",
+        calib_dir=tmp_path,
+        repetitions=250,
+        algorithm="demcz",
+        algorithm_kwargs={"nChains": 8},
+    )
+    rebuilt = CalibrationConfig.from_dict(cfg.to_dict())
+    assert rebuilt == cfg
+    assert rebuilt.repetitions == 250
+    assert rebuilt.algorithm == "demcz"
+    assert rebuilt.algorithm_kwargs == {"nChains": 8}
+
+
+def test_config_from_dict_defaults_when_new_fields_absent(tmp_path: Path):
+    """A YAML written before these fields existed must still load."""
+    cfg = CalibrationConfig.from_dict({"model_name": "m", "calib_dir": str(tmp_path)})
+    assert cfg.repetitions == 10
+    assert cfg.algorithm == "mc"
+    assert cfg.algorithm_kwargs == {}
+
+
+# ---------------------------------------------------------------------------
 # load_calibration_inputs
 # ---------------------------------------------------------------------------
 

@@ -159,9 +159,13 @@ def write_grid_weights_file(
     mapping
         DataFrame with at least ``SubId`` and ``grid_idx`` columns.
     n_grid_cells
-        Total number of grid cells in the source PHyDAP forcing file. Note:
-        this is the *full* grid extent, not just the cells referenced by
-        ``mapping`` — Raven needs to allocate buffers for the whole grid.
+        Number of grid cells in the forcing NetCDF that Raven will read.
+        That NetCDF is the *subset* produced by Step 1 (one cell per
+        selected HYBAS basin), so this must equal the subset cell count
+        — i.e. ``len(hybas_map)`` — NOT the full PHyDAP grid extent.
+        Raven cross-checks this value against the NetCDF and aborts with
+        ":NumberGridCells given does not agree with NetCDF file content"
+        on any mismatch.
     watershed_name
         Used in the header comment.
     output_path
@@ -214,7 +218,10 @@ def generate_grid_weights(
     Convenience wrapper combining :func:`compute_subbasin_to_grid_mapping` and
     :func:`write_grid_weights_file` for use from a notebook or runner script.
 
-    If *n_grid_cells* is None, defaults to ``len(phydap)``.
+    If *n_grid_cells* is None, defaults to ``len(hybas_map)`` — the number
+    of basins in the subset, which equals the cell count of the subset
+    forcing NetCDF Raven reads. (It is NOT ``len(phydap)``: that is the
+    full prairie grid, and writing it makes Raven reject the forcing file.)
     """
     subbasins = gpd.read_file(str(subbasins_shp))
     phydap = gpd.read_file(str(phydap_shp))

@@ -42,6 +42,8 @@ def test_main_writes_valid_yaml(monkeypatch, tmp_path: Path, capsys):
         "2003",                                         # eval_start_yr
         "2021",                                         # eval_end_yr
         "14",                                           # mpi_cores
+        "200",                                          # repetitions
+        "rope",                                         # algorithm
     ])
 
     rc = main([str(out)])
@@ -55,6 +57,8 @@ def test_main_writes_valid_yaml(monkeypatch, tmp_path: Path, capsys):
     assert cfg.eval_start_yr == 2003
     assert cfg.eval_end_yr == 2021
     assert cfg.mpi_cores == 14
+    assert cfg.repetitions == 200
+    assert cfg.algorithm == "rope"
     # The dataclass defaults flow through (we didn't prompt for these)
     assert cfg.spring_eval is True
     assert cfg.routing is False
@@ -71,6 +75,8 @@ def test_main_uses_defaults_on_blank_input(monkeypatch, tmp_path: Path):
         "",                                             # eval_start_yr (1995)
         "",                                             # eval_end_yr (2010)
         "",                                             # mpi_cores (0)
+        "",                                             # repetitions (10)
+        "",                                             # algorithm (mc)
     ])
 
     rc = main([str(out)])
@@ -82,6 +88,8 @@ def test_main_uses_defaults_on_blank_input(monkeypatch, tmp_path: Path):
     assert cfg.eval_start_yr == 1995
     assert cfg.eval_end_yr == 2010
     assert cfg.mpi_cores == 0
+    assert cfg.repetitions == 10
+    assert cfg.algorithm == "mc"
 
 
 def test_main_refuses_overwrite_without_force(monkeypatch, tmp_path: Path, capsys):
@@ -104,7 +112,7 @@ def test_main_overwrites_with_force(monkeypatch, tmp_path: Path):
     out = tmp_path / "existing.yml"
     out.write_text("model_name: stale\ncalib_dir: ./\n")
     _stub_inputs(monkeypatch, [
-        "fresh", str(tmp_path / "fresh"), "", "", "", "",
+        "fresh", str(tmp_path / "fresh"), "", "", "", "", "", "",
     ])
     rc = main([str(out), "--force"])
     assert rc == 0
@@ -114,7 +122,7 @@ def test_main_overwrites_with_force(monkeypatch, tmp_path: Path):
 def test_main_creates_output_parent(monkeypatch, tmp_path: Path):
     out = tmp_path / "deeply" / "nested" / "calibration.yml"
     _stub_inputs(monkeypatch, [
-        "deepwater", str(tmp_path / "deepwater"), "", "", "", "",
+        "deepwater", str(tmp_path / "deepwater"), "", "", "", "", "", "",
     ])
     rc = main([str(out)])
     assert rc == 0

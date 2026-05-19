@@ -166,7 +166,7 @@ class RavenFile:
         for hru, area in _HRU_areas.items():
             rvh_txt = rvh_txt.replace(f"H{hru}_area", str(basin_fact * area))
 
-        # Scale transport parameters
+        # Scale transport parameters (tc / tp)
         if _routing:
             t_peak_fact = _param_vector["t_peak_fact"]
             t_conc_fact = _param_vector["tc_tp_fact"] * t_peak_fact
@@ -177,14 +177,19 @@ class RavenFile:
             for subid, tp in _tps.items():
                 scaled = tp * t_peak_fact / _aspect_ratios[subid]
                 rvh_txt = rvh_txt.replace(f"tp_{subid}", str(scaled))
-
-            qref_scale = _param_vector["qref_scale"] if _channel_scale else 1
-            for subid, qref in _qrefs.items():
-                rvh_txt = rvh_txt.replace(f"qref_{subid}", str(qref_scale * qref))
         else:
             for subid, tc in _tcs.items():
                 rvh_txt = rvh_txt.replace(f"tc_{subid}", str(tc))
             for subid, tp in _tps.items():
                 rvh_txt = rvh_txt.replace(f"tp_{subid}", str(tp))
+
+        # qref_<subid> placeholders are written into every .rvh.tpl
+        # regardless of routing, so they must always be substituted —
+        # otherwise Raven reads the literal "qref_<id>" token as the
+        # reference flow and aborts. qref_scale is a calibration knob
+        # only when channel scaling is on; otherwise it is 1 (base value).
+        qref_scale = _param_vector["qref_scale"] if _channel_scale else 1
+        for subid, qref in _qrefs.items():
+            rvh_txt = rvh_txt.replace(f"qref_{subid}", str(qref_scale * qref))
 
         self.write(rvh_txt)

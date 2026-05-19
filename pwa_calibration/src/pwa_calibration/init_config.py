@@ -34,7 +34,7 @@ from pathlib import Path
 from typing import Optional
 
 from pwa_calibration.objectives import OBJECTIVES
-from pwa_calibration.setup import CalibrationConfig
+from pwa_calibration.setup import ALGORITHMS, CalibrationConfig
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +102,17 @@ def prompt_for_calibration_config(
         default=str(defaults.get("mpi_cores", 0)),
     ))
 
+    repetitions = int(_prompt(
+        "Number of sampler repetitions",
+        default=str(defaults.get("repetitions", 10)),
+    ))
+
+    algorithm_choices = "/".join(ALGORITHMS)
+    algorithm = _prompt(
+        f"Sampler algorithm ({algorithm_choices})",
+        default=defaults.get("algorithm", "mc"),
+    )
+
     return CalibrationConfig(
         model_name=model_name,
         calib_dir=calib_dir,
@@ -109,6 +120,8 @@ def prompt_for_calibration_config(
         eval_start_yr=eval_start_yr,
         eval_end_yr=eval_end_yr,
         mpi_cores=mpi_cores,
+        repetitions=repetitions,
+        algorithm=algorithm,
     )
 
 

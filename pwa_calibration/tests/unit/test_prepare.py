@@ -36,8 +36,19 @@ NETCDF_CATEGORY = "Runoff"
 
 
 def _build_source_tree(data_root: Path) -> None:
-    """Build a watershed source tree with one file in each expected location."""
-    raven_proc = data_root / WATERSHED / "Raven" / "Processed"
+    """Build a watershed source tree matching the refactored pipeline's
+    output layout:
+
+      <watershed>/HydroConditioning/Processed/  — Step 0 depression depths
+      <watershed>/Raven/Processed/              — Step 2 .rv* files (flat)
+      <watershed>/Raven/Processed/input/        — Step 2 HRU/tp_tc/WSC/aspect
+      <watershed>/Raven/Processed/templates/    — Step 2 .tpl templates
+      <watershed>/<category>/Processed/         — Step 1 GridWeights + .nc
+    """
+    ws = data_root / WATERSHED
+
+    # Step 2 — Raven/Processed: .rv* files flat; input/ and templates/ nested.
+    raven_proc = ws / "Raven" / "Processed"
     raven_proc.mkdir(parents=True)
     (raven_proc / "Raven.exe").write_bytes(b"FAKE_BINARY")
     (raven_proc / f"{WATERSHED}.rvi").write_text(":SimulationStart")
@@ -48,20 +59,28 @@ def _build_source_tree(data_root: Path) -> None:
         ":Gauge\n  :RedirectToFile rdrs_runoff.nc\n:EndGauge\n"
     )
     (raven_proc / "channel_properties.rvp").write_text(":Channels")
-    (raven_proc / "model.rvp.tpl").write_text(":Soils tpl")
-    (raven_proc / "model.rvh.tpl").write_text(":SubBasins tpl")
-    (raven_proc / f"{WATERSHED}_HRU_areas.csv").write_text("HRU,AREA\n1,10\n")
-    (raven_proc / f"{WATERSHED}_tp_tc.csv").write_text("SubId,tp,tc\n101,1,2\n")
-    (raven_proc / f"{WATERSHED}_WSC_outlet.txt").write_text("875\n")
 
-    dd_proc = data_root / WATERSHED / "DepressionDepths" / "Processed"
-    dd_proc.mkdir(parents=True)
+    raven_templates = raven_proc / "templates"
+    raven_templates.mkdir()
+    (raven_templates / "model.rvp.tpl").write_text(":Soils tpl")
+    (raven_templates / "model.rvh.tpl").write_text(":SubBasins tpl")
+
+    raven_input = raven_proc / "input"
+    raven_input.mkdir()
+    (raven_input / f"{WATERSHED}_HRU_areas.csv").write_text("HRU,AREA\n1,10\n")
+    (raven_input / f"{WATERSHED}_tp_tc.csv").write_text("SubId,tp,tc\n101,1,2\n")
+    (raven_input / f"{WATERSHED}_WSC_outlet.txt").write_text("875\n")
+    (raven_input / "aspect_ratios.csv").write_text("SubId,Aspect_Ratio\n101,0.5\n")
+
+    # Step 0 — HydroConditioning/Processed: depression-depths shapefile.
+    hydrocon_proc = ws / "HydroConditioning" / "Processed"
+    hydrocon_proc.mkdir(parents=True)
     for ext in (".cpg", ".dbf", ".prj", ".shp", ".shx"):
-        (dd_proc / f"CLRH_basins_depression_depths{ext}").write_bytes(b"x")
-    (dd_proc / "aspect_ratios.csv").write_text("SubId,Aspect_Ratio\n101,0.5\n")
-    (dd_proc / "ignored.txt").write_text("nope")  # wrong suffix
+        (hydrocon_proc / f"CLRH_basins_depression_depths{ext}").write_bytes(b"x")
+    (hydrocon_proc / "ignored.txt").write_text("nope")  # wrong suffix
 
-    nc_proc = data_root / WATERSHED / NETCDF_CATEGORY / "Processed"
+    # Step 1 — <category>/Processed: GridWeights + forcing NetCDF.
+    nc_proc = ws / NETCDF_CATEGORY / "Processed"
     nc_proc.mkdir(parents=True)
     (nc_proc / "GridWeights.txt").write_text(":GridWeights")
     (nc_proc / "rdrs_runoff.nc").write_bytes(b"FAKE_NETCDF")
@@ -92,6 +111,20 @@ def test_paths_construction_uses_pathlib(tmp_path: Path):
     assert p.calibration_root == tmp_path / "Calibration" / "w"
     assert p.calibration_input_dir == tmp_path / "Calibration" / "w" / "input"
     assert p.calibration_template_dir == tmp_path / "Calibration" / "w" / "templates"
+
+
+def test_source_paths_match_refactored_pipeline_layout(paths: StagingPaths):
+    """The staging source paths must point at where the refactored
+    Steps 0/1/2 actually write — not the legacy notebook layout."""
+    ws = paths.data_root / WATERSHED
+    assert paths.raven_processed_dir == ws / "Raven" / "Processed"
+    assert paths.raven_input_dir == ws / "Raven" / "Processed" / "input"
+    assert paths.raven_templates_dir == ws / "Raven" / "Processed" / "templates"
+    # Step 0 writes depression depths under HydroConditioning/, not the
+    # legacy DepressionDepths/ folder.
+    assert paths.hydrocon_processed_dir == ws / "HydroConditioning" / "Processed"
+    # aspect_ratios.csv is a Step 2 output nested in Raven/Processed/input/.
+    assert paths.aspect_ratios_source == paths.raven_input_dir / "aspect_ratios.csv"
 
 
 def test_create_calibration_folders_idempotent(paths: StagingPaths):
