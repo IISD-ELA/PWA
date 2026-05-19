@@ -223,6 +223,6 @@ def generate_grid_weights(
     mapping = compute_subbasin_to_grid_mapping(subbasins, phydap, hybas_map)
 
     if n_grid_cells is None:
-        n_grid_cells = len(phydap)
+        n_grid_cells = len(hybas_map)
 
     return write_grid_weights_file(mapping, n_grid_cells, watershed_name, output_path)

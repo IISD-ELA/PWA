@@ -25,6 +25,8 @@ __pycache__/
 .vscode/
 hydro_condition.py
 archive/
+src/raven/
+scratch/
 
 # Python build/test artifacts
 *.egg-info/
