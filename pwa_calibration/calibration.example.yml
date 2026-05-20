@@ -93,3 +93,21 @@ algorithm: mc
 #   demcz:  {nChains: 5, burnIn: 100}
 # Leave empty ({}) for mc.
 algorithm_kwargs: {}
+
+# ---- Raven binary location -------------------------------------------
+
+# Optional absolute path to the Raven executable. Set this only when
+# the binary lives outside the calibration tree AND is not on PATH.
+#
+# Resolution order at run time (FIRST match wins):
+#   1. raven_binary (this field), if set.
+#   2. The per-iteration working directory (calib_dir, or each MPI
+#      core's working copy) — looks for "Raven" then "Raven.exe".
+#      The staging step already copies the binary into calib_dir,
+#      so this is the zero-config default.
+#   3. The system PATH.
+#
+# If you can't add Raven to your system PATH (common in IT-managed
+# environments), just drop "Raven.exe" into your calibration folder
+# alongside the .rv* files — tier 2 picks it up automatically.
+# raven_binary: /opt/raven/bin/Raven

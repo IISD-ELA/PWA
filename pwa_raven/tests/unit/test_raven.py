@@ -18,7 +18,7 @@ import pytest
 
 from pwa_raven.raven.files import RavenFile
 from pwa_raven.raven.hydrograph import RavenHydrograph, index_to_date
-from pwa_raven.raven.runner import _find_raven_binary
+from pwa_raven.raven.runner import _find_raven_binary, run_raven
 
 
 # ============ RavenFile — template substitution ============
@@ -176,8 +176,42 @@ def _mock_hydrograph_csv(tmp_path: Path, run_id: str = "") -> Path:
 def test_read_sim_returns_series(tmp_path: Path) -> None:
     rv_path = _mock_hydrograph_csv(tmp_path)
     rh = RavenHydrograph(rv_path)
-    sim = rh.read_sim("sub100", start_yr=2005, end_yr=2005, spring_only=False)
+    sim = rh.read_sim("sub100", years=[2005], spring_only=False)
     assert len(sim) > 0
+
+
+def test_read_sim_hourly_resolution_preserves_length(tmp_path: Path) -> None:
+    """resolution='h' keeps the raw hourly index (48 samples for 48h fixture)."""
+    rv_path = _mock_hydrograph_csv(tmp_path)
+    rh = RavenHydrograph(rv_path)
+    sim = rh.read_sim("sub100", years=[2005], spring_only=False, resolution="h")
+    assert len(sim) == 48
+
+
+def test_read_sim_daily_resolution_resamples(tmp_path: Path) -> None:
+    """resolution='d' (default) resamples 48 hourly rows → 2 daily means."""
+    rv_path = _mock_hydrograph_csv(tmp_path)
+    rh = RavenHydrograph(rv_path)
+    sim = rh.read_sim("sub100", years=[2005], spring_only=False)
+    assert len(sim) == 2
+    # Daily mean of 0..23 is 11.5, of 24..47 is 35.5.
+    assert sim.iloc[0] == pytest.approx(11.5)
+    assert sim.iloc[1] == pytest.approx(35.5)
+
+
+def test_read_sim_rejects_unknown_resolution(tmp_path: Path) -> None:
+    rv_path = _mock_hydrograph_csv(tmp_path)
+    rh = RavenHydrograph(rv_path)
+    with pytest.raises(ValueError, match="Unsupported resolution"):
+        rh.read_sim("sub100", years=[2005], spring_only=False, resolution="weekly")
+
+
+def test_read_sim_rejects_empty_years(tmp_path: Path) -> None:
+    """Empty year arrays produce empty windows — catch this at the API boundary."""
+    rv_path = _mock_hydrograph_csv(tmp_path)
+    rh = RavenHydrograph(rv_path)
+    with pytest.raises(ValueError, match="`years` is empty"):
+        rh.read_sim("sub100", years=[], spring_only=False)
 
 
 def test_hydrograph_raises_clearly_when_no_csv(tmp_path: Path) -> None:
@@ -212,13 +246,13 @@ def test_read_sim_raises_on_missing_column(tmp_path: Path) -> None:
     rv_path = _mock_hydrograph_csv(tmp_path)
     rh = RavenHydrograph(rv_path)
     with pytest.raises(ValueError, match="No simulated column"):
-        rh.read_sim("nonexistent_subbasin", start_yr=2005, end_yr=2005)
+        rh.read_sim("nonexistent_subbasin", years=[2005])
 
 
 def test_read_obs_returns_series(tmp_path: Path) -> None:
     rv_path = _mock_hydrograph_csv(tmp_path)
     rh = RavenHydrograph(rv_path)
-    obs = rh.read_obs(start_yr=2005, end_yr=2005, spring_only=False)
+    obs = rh.read_obs(years=[2005], spring_only=False)
     assert len(obs) > 0
 
 
@@ -238,7 +272,7 @@ def test_read_obs_raises_on_missing_column(tmp_path: Path) -> None:
 
     rh = RavenHydrograph(tmp_path)
     with pytest.raises(ValueError, match="No 'observed' column"):
-        rh.read_obs(start_yr=2005, end_yr=2005, spring_only=False)
+        rh.read_obs(years=[2005], spring_only=False)
 
 
 def test_read_runoff_raises_on_missing_column(tmp_path: Path) -> None:
@@ -256,7 +290,7 @@ def test_read_runoff_raises_on_missing_column(tmp_path: Path) -> None:
 
     rh = RavenHydrograph(tmp_path)
     with pytest.raises(ValueError, match="No 'precip' column"):
-        rh.read_runoff(start_yr=2005, end_yr=2005, spring_only=False)
+        rh.read_runoff(years=[2005], spring_only=False)
 
 
 # ============ run_raven — binary detection ============
@@ -275,9 +309,124 @@ def test_find_raven_binary_windows_fallback() -> None:
 
 
 def test_find_raven_binary_missing() -> None:
-    """When neither ``Raven`` nor ``Raven.exe`` is on PATH, raise a clear
-    FileNotFoundError pointing at the install instructions instead of
-    silently invoking a nonexistent binary."""
+    """When none of the three tiers yields a binary, raise a clear
+    FileNotFoundError listing all checked locations."""
     with patch("shutil.which", return_value=None):
         with pytest.raises(FileNotFoundError, match="Raven binary not found"):
             _find_raven_binary()
+
+
+# --- explicit path ---------------------------------------------------------
+
+def test_find_raven_binary_uses_explicit_path_when_present(tmp_path: Path) -> None:
+    """An explicit path takes precedence over both data-dir and PATH."""
+    binary = tmp_path / "Raven.exe"
+    binary.write_text("")  # exists but empty — we only care about resolution
+    with patch("shutil.which", return_value="/usr/bin/Raven"):  # would shadow if used
+        result = _find_raven_binary(explicit=binary)
+    assert result == str(binary.resolve())
+
+
+def test_find_raven_binary_explicit_missing_raises_clear_error(tmp_path: Path) -> None:
+    """Explicit path that doesn't exist must error with the path the user
+    asked for — not silently fall back to PATH, which would mask a typo."""
+    bogus = tmp_path / "does_not_exist" / "Raven.exe"
+    with patch("shutil.which", return_value="/usr/bin/Raven"):
+        with pytest.raises(FileNotFoundError, match="does_not_exist"):
+            _find_raven_binary(explicit=bogus)
+
+
+# --- data-directory search (Thomas's PATH-restricted workflow) -------------
+
+def test_find_raven_binary_searches_data_dir_before_path(tmp_path: Path) -> None:
+    """When the binary lives in the calibration's data directory, that
+    location wins over PATH — supports environments where adding to
+    PATH requires IT approval and users drop Raven.exe next to the data
+    instead."""
+    data_dir = tmp_path / "Calibration" / "grassmere"
+    data_dir.mkdir(parents=True)
+    binary = data_dir / "Raven.exe"
+    binary.write_text("")
+    with patch(
+        "shutil.which",
+        side_effect=lambda name: "/usr/bin/Raven" if name == "Raven" else None,
+    ):
+        result = _find_raven_binary(search_dirs=[data_dir])
+    assert result == str(binary.resolve())  # data_dir wins, not /usr/bin/Raven
+
+
+def test_find_raven_binary_falls_back_to_path_when_data_dir_empty(
+    tmp_path: Path,
+) -> None:
+    """Data-dir search misses → PATH gets consulted. Keeps the
+    PATH-based install option live for users who do have it."""
+    data_dir = tmp_path / "empty_calib"
+    data_dir.mkdir()
+    with patch("shutil.which", return_value="/usr/bin/Raven"):
+        result = _find_raven_binary(search_dirs=[data_dir])
+    assert result == "/usr/bin/Raven"
+
+
+def test_find_raven_binary_error_lists_searched_directories(tmp_path: Path) -> None:
+    """Failure mode should name every place we looked so the user knows
+    exactly where to drop the binary."""
+    data_dir = tmp_path / "calib"
+    data_dir.mkdir()
+    with patch("shutil.which", return_value=None):
+        with pytest.raises(FileNotFoundError, match=str(data_dir)):
+            _find_raven_binary(search_dirs=[data_dir])
+
+
+def test_find_raven_binary_prefers_no_extension_over_exe_in_data_dir(
+    tmp_path: Path,
+) -> None:
+    """When both ``Raven`` and ``Raven.exe`` sit in the data dir (cross-
+    platform calibration tree), prefer the no-extension Linux/macOS
+    convention to match _BINARY_NAMES ordering."""
+    data_dir = tmp_path / "calib"
+    data_dir.mkdir()
+    (data_dir / "Raven").write_text("")
+    (data_dir / "Raven.exe").write_text("")
+    with patch("shutil.which", return_value=None):
+        result = _find_raven_binary(search_dirs=[data_dir])
+    assert result.endswith("Raven")
+    assert not result.endswith(".exe")
+
+
+# --- run_raven integration with the resolution tiers ----------------------
+
+def test_run_raven_passes_explicit_binary_to_subprocess(tmp_path: Path) -> None:
+    """The explicit ``raven_binary`` argument propagates straight into
+    the subprocess command — load-bearing for the CalibrationConfig
+    wiring."""
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    explicit = tmp_path / "custom" / "Raven.bin"
+    explicit.parent.mkdir()
+    explicit.write_text("")
+
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value.stdout = ""
+        mock_run.return_value.stderr = ""
+        run_raven("model", data_dir=data_dir, raven_binary=explicit)
+
+    cmd = mock_run.call_args.args[0]
+    assert cmd[0] == str(explicit.resolve())
+
+
+def test_run_raven_auto_discovers_binary_in_data_dir(tmp_path: Path) -> None:
+    """When no explicit path is given, run_raven finds the binary
+    sitting next to the data files. This is Thomas's workflow — and
+    the workflow stage_raven_binary already produces."""
+    data_dir = tmp_path / "Calibration" / "grassmere"
+    data_dir.mkdir(parents=True)
+    binary = data_dir / "Raven.exe"
+    binary.write_text("")
+
+    with patch("subprocess.run") as mock_run, patch("shutil.which", return_value=None):
+        mock_run.return_value.stdout = ""
+        mock_run.return_value.stderr = ""
+        run_raven("model", data_dir=data_dir)
+
+    cmd = mock_run.call_args.args[0]
+    assert cmd[0] == str(binary.resolve())

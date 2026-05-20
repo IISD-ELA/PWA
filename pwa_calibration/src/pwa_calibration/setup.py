@@ -196,6 +196,14 @@ class CalibrationConfig:
     mpi_cores
         ``0`` or ``1`` → serial (single working dir). ``>=2`` → each
         rank gets its own ``{calib_dir}_mpi/core{N}/`` working copy.
+    raven_binary
+        Optional absolute path to the Raven executable. When ``None``
+        (the default), ``run_raven`` searches the per-iteration
+        ``working_dir`` first, then the system PATH — so dropping
+        ``Raven``/``Raven.exe`` into ``calib_dir`` (as the
+        ``stage_raven_binary`` step already does) is sufficient. Set
+        this only when the binary lives outside the calibration tree
+        and isn't on PATH.
     """
 
     model_name: str
@@ -215,10 +223,26 @@ class CalibrationConfig:
     repetitions: int = 10
     algorithm: str = "mc"
     algorithm_kwargs: dict = field(default_factory=dict)
+    raven_binary: Optional[Path] = None
+    # Alternating train/test split over [eval_start_yr, eval_end_yr).
+    # 0  → use every year for training (no split — original refactor behaviour).
+    # 1  → hold out the first 5 years as test, train on the remainder.
+    # >1 → every k-th year is test, the rest is training (k=4 was Thomas's
+    # default in upstream master after 2026-04-29).
+    tt_split_freq: int = 0
+    # Realign each year's observed hydrograph to the simulated one by its
+    # center-of-mass before computing the objective. New science from
+    # upstream master 2026-05-04 (commit 230493c). Defaults to off until
+    # we have unit tests demonstrating the lag-shift behaviour end-to-end.
+    event_based: bool = False
 
     def __post_init__(self) -> None:
         # Force calib_dir to a Path with no trailing separator.
         object.__setattr__(self, "calib_dir", Path(str(self.calib_dir).rstrip("/\\")))
+        # Coerce raven_binary to Path when supplied. None stays None and
+        # signals "fall back to data-directory search + PATH".
+        if self.raven_binary is not None:
+            object.__setattr__(self, "raven_binary", Path(self.raven_binary))
         if self.obj_fn not in OBJECTIVES:
             raise ValueError(
                 f"Unsupported obj_fn {self.obj_fn!r}. Choose from {sorted(OBJECTIVES)}."
@@ -231,6 +255,15 @@ class CalibrationConfig:
             raise ValueError(
                 f"Unsupported algorithm {self.algorithm!r}. "
                 f"Choose from {sorted(ALGORITHMS)}."
+            )
+        if self.tt_split_freq < 0:
+            raise ValueError(
+                f"tt_split_freq must be >= 0, got {self.tt_split_freq}."
+            )
+        if self.eval_end_yr < self.eval_start_yr:
+            raise ValueError(
+                f"eval_end_yr ({self.eval_end_yr}) must be >= eval_start_yr "
+                f"({self.eval_start_yr})."
             )
         split = self.split_areas.lower()
         if split in ("clrh", "phydap"):
@@ -251,6 +284,30 @@ class CalibrationConfig:
     @property
     def input_dir(self) -> Path:
         return self.calib_dir / "input"
+
+    @property
+    def train_years(self) -> np.ndarray:
+        """Years used for SPOTPY training, given the eval window and split.
+
+        Returns a 1-D integer numpy array. The window is
+        ``[eval_start_yr, eval_end_yr)`` — end-exclusive, matching
+        upstream's ``range(start_year, end_year)`` semantics.
+        """
+        all_years = np.arange(self.eval_start_yr, self.eval_end_yr)
+        if self.tt_split_freq == 0:
+            return all_years
+        if self.tt_split_freq == 1:
+            # Hold out the first 5 years as test (legacy behaviour from
+            # upstream's `tt_split_freq <= 1` branch).
+            return all_years[5:] if all_years.size > 5 else all_years
+        test_years = all_years[:: self.tt_split_freq]
+        return all_years[~np.isin(all_years, test_years)]
+
+    @property
+    def test_years(self) -> np.ndarray:
+        """Complement of :attr:`train_years` within the eval window."""
+        all_years = np.arange(self.eval_start_yr, self.eval_end_yr)
+        return all_years[~np.isin(all_years, self.train_years)]
 
     def expected_input_files(self) -> list[Path]:
         """Files load_calibration_inputs reads — use to fail fast.
@@ -314,6 +371,11 @@ class CalibrationConfig:
             "repetitions": self.repetitions,
             "algorithm": self.algorithm,
             "algorithm_kwargs": dict(self.algorithm_kwargs),
+            "tt_split_freq": self.tt_split_freq,
+            "event_based": self.event_based,
+            "raven_binary": (
+                str(self.raven_binary) if self.raven_binary is not None else None
+            ),
         }
 
     @classmethod
@@ -353,6 +415,9 @@ class CalibrationConfig:
             repetitions=data.get("repetitions", defaults.repetitions),
             algorithm=data.get("algorithm", defaults.algorithm),
             algorithm_kwargs=data.get("algorithm_kwargs") or {},
+            tt_split_freq=data.get("tt_split_freq", defaults.tt_split_freq),
+            event_based=data.get("event_based", defaults.event_based),
+            raven_binary=data.get("raven_binary", defaults.raven_binary),
         )
 
     def to_yaml(self, path: Path | str) -> Path:
@@ -449,7 +514,8 @@ def build_param_distributions(config: CalibrationConfig) -> tuple[list, str]:
 
     dists: list = []
     if config.dep_scaling:
-        dists.append(sp.parameter.Uniform("dep_fact", low=0.10, high=1.00, optguess=0.5))
+        # Widened priors from upstream master 2026-05-04 (commit 230493c).
+        dists.append(sp.parameter.Uniform("dep_fact", low=0.4, high=1.2, optguess=0.8))
 
     dists.append(sp.parameter.Uniform("seep_k", low=0.005, high=seep_max, optguess=seep_opt))
 
@@ -461,7 +527,8 @@ def build_param_distributions(config: CalibrationConfig) -> tuple[list, str]:
 
     if config.routing:
         dists.append(sp.parameter.Uniform("tc_tp_fact", low=1.4, high=3.0))
-        dists.append(sp.parameter.Uniform("t_peak_fact", low=0.4, high=1.2))
+        # Widened from [0.4, 1.2] in upstream master 2026-05-04 (commit 230493c).
+        dists.append(sp.parameter.Uniform("t_peak_fact", low=0.2, high=5.0))
         dists.append(sp.parameter.Uniform("qref_scale", low=0.5, high=2.0))
 
     if config.channel_scaling:
@@ -651,24 +718,38 @@ class SpotPySetup:
             logger.info("phydap_adj off — writing unshifted forcing %s", adj_path.name)
         netcdf.time_offset(template_path, adj_path, offset=offset)
 
-        raven_runner.run_raven(self.config.model_name, sim_dir)
+        raven_runner.run_raven(
+            self.config.model_name,
+            sim_dir,
+            raven_binary=self.config.raven_binary,
+        )
 
         subbasin_id = f"sub{self.inputs.outlet}"
         hydrograph = raven_hydro.RavenHydrograph(sim_dir)
 
+        train_years = self.config.train_years
+        logger.info(
+            "Training on %d years: %s%s",
+            train_years.size,
+            train_years[:10].tolist(),
+            " ..." if train_years.size > 10 else "",
+        )
         sim = hydrograph.read_sim(
             subbasin_id,
-            start_yr=self.config.eval_start_yr,
-            end_yr=self.config.eval_end_yr,
+            years=train_years,
             spring_only=self.config.spring_eval,
             refresh=True,
-        ).reset_index(drop=True)
+        )
         obs = hydrograph.read_obs(
-            start_yr=self.config.eval_start_yr,
-            end_yr=self.config.eval_end_yr,
+            years=train_years,
             spring_only=self.config.spring_eval,
             refresh=True,
-        ).reset_index(drop=True)
+        )
+
+        if self.config.event_based:
+            from .objectives import shift_obs_by_yearly_lag
+
+            obs = shift_obs_by_yearly_lag(obs, sim, train_years)
 
         value = evaluate_objective(self.config.obj_fn, sim, obs)
         logger.info(

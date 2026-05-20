@@ -219,6 +219,33 @@ def test_config_from_dict_defaults_when_new_fields_absent(tmp_path: Path):
     assert cfg.algorithm_kwargs == {}
 
 
+def test_config_raven_binary_defaults_to_none(tmp_path: Path):
+    """Default config has no explicit Raven binary — falls back to
+    data-directory search + PATH at run time. Matches the
+    stage_raven_binary workflow where the binary is copied into
+    calib_dir and picked up automatically."""
+    cfg = CalibrationConfig(model_name="m", calib_dir=tmp_path)
+    assert cfg.raven_binary is None
+
+
+def test_config_raven_binary_coerces_str_to_path(tmp_path: Path):
+    """YAML deserializes raven_binary as a string. Coerce so downstream
+    code can rely on Path methods (relative-vs-absolute checks etc.)."""
+    exe_str = str(tmp_path / "external" / "Raven.exe")
+    cfg = CalibrationConfig(
+        model_name="m", calib_dir=tmp_path, raven_binary=exe_str,
+    )
+    assert isinstance(cfg.raven_binary, Path)
+    assert cfg.raven_binary == Path(exe_str)
+
+
+def test_config_raven_binary_round_trips_through_dict(tmp_path: Path):
+    exe = tmp_path / "external" / "Raven.exe"
+    cfg = CalibrationConfig(model_name="m", calib_dir=tmp_path, raven_binary=exe)
+    rebuilt = CalibrationConfig.from_dict(cfg.to_dict())
+    assert rebuilt.raven_binary == exe
+
+
 # ---------------------------------------------------------------------------
 # load_calibration_inputs
 # ---------------------------------------------------------------------------
@@ -436,6 +463,97 @@ def test_from_dict_rejects_missing_model_name(tmp_path: Path):
 def test_from_dict_rejects_missing_calib_dir():
     with pytest.raises(ValueError, match="calib_dir"):
         CalibrationConfig.from_dict({"model_name": "grassmere"})
+
+
+# ---------------------------------------------------------------------------
+# Train/test year splitting (upstream commit 1e72e50)
+# ---------------------------------------------------------------------------
+
+
+def test_train_years_default_is_full_window(tmp_path: Path):
+    """tt_split_freq=0 (default) → every year in [start, end) is training."""
+    cfg = CalibrationConfig(
+        model_name="m", calib_dir=tmp_path, eval_start_yr=2000, eval_end_yr=2005,
+    )
+    assert list(cfg.train_years) == [2000, 2001, 2002, 2003, 2004]
+    assert list(cfg.test_years) == []
+
+
+def test_train_years_split_freq_one_drops_first_five(tmp_path: Path):
+    """tt_split_freq=1 mirrors upstream's `<=1` branch: hold out first 5 years."""
+    cfg = CalibrationConfig(
+        model_name="m", calib_dir=tmp_path,
+        eval_start_yr=1983, eval_end_yr=2018, tt_split_freq=1,
+    )
+    assert list(cfg.train_years) == list(range(1988, 2018))
+    assert list(cfg.test_years) == list(range(1983, 1988))
+
+
+def test_train_years_split_freq_four_alternates(tmp_path: Path):
+    """tt_split_freq=4 → every 4th year is test, the rest is training."""
+    cfg = CalibrationConfig(
+        model_name="m", calib_dir=tmp_path,
+        eval_start_yr=2000, eval_end_yr=2010, tt_split_freq=4,
+    )
+    # All years 2000..2009. Test = [2000, 2004, 2008]. Train = the rest.
+    assert list(cfg.test_years) == [2000, 2004, 2008]
+    assert list(cfg.train_years) == [2001, 2002, 2003, 2005, 2006, 2007, 2009]
+
+
+def test_rejects_negative_tt_split_freq(tmp_path: Path):
+    with pytest.raises(ValueError, match="tt_split_freq"):
+        CalibrationConfig(model_name="m", calib_dir=tmp_path, tt_split_freq=-1)
+
+
+def test_rejects_inverted_eval_window(tmp_path: Path):
+    with pytest.raises(ValueError, match="eval_end_yr"):
+        CalibrationConfig(
+            model_name="m", calib_dir=tmp_path,
+            eval_start_yr=2010, eval_end_yr=2005,
+        )
+
+
+def test_round_trip_includes_new_fields(tmp_path: Path):
+    """to_dict / from_dict preserves tt_split_freq and event_based."""
+    original = CalibrationConfig(
+        model_name="m", calib_dir=tmp_path,
+        tt_split_freq=4, event_based=True,
+    )
+    rebuilt = CalibrationConfig.from_dict(original.to_dict())
+    assert rebuilt.tt_split_freq == 4
+    assert rebuilt.event_based is True
+
+
+# ---------------------------------------------------------------------------
+# Updated parameter priors (upstream commit 230493c)
+# ---------------------------------------------------------------------------
+
+
+def _find_dist(dists, name):
+    return next(d for d in dists if d.name == name)
+
+
+def test_dep_fact_prior_uses_widened_range(tmp_path: Path):
+    """Upstream widened dep_fact from [0.10, 1.00] to [0.4, 1.2]."""
+    cfg = CalibrationConfig(model_name="m", calib_dir=tmp_path, dep_scaling=True)
+    dists, _ = build_param_distributions(cfg)
+    dep = _find_dist(dists, "dep_fact")
+    # SpotPY stores the configured low/high in rndargs; minbound is a
+    # post-construction sample so isn't a reliable bound check.
+    low, high = dep.rndargs
+    assert low == pytest.approx(0.4)
+    assert high == pytest.approx(1.2)
+    assert dep.optguess == pytest.approx(0.8)
+
+
+def test_t_peak_fact_prior_uses_widened_range(tmp_path: Path):
+    """Upstream widened t_peak_fact from [0.4, 1.2] to [0.2, 5.0]."""
+    cfg = CalibrationConfig(model_name="m", calib_dir=tmp_path, routing=True)
+    dists, _ = build_param_distributions(cfg)
+    tpeak = _find_dist(dists, "t_peak_fact")
+    low, high = tpeak.rndargs
+    assert low == pytest.approx(0.2)
+    assert high == pytest.approx(5.0)
 
 
 def test_to_yaml_writes_human_readable_file(tmp_path: Path):
