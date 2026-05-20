@@ -84,3 +84,19 @@ write_aspect_ratios: true
 
 # NetCDF variable name referenced by the .rvt GriddedForcing block.
 forcing_var_name: runoff
+
+# ---- RavenView visualization export -----------------------------------
+
+# Path to the watershed's rivers shapefile (raw CLRH layer, e.g.
+# finalcat_info_riv_v1-0.shp). Step 2 doesn't otherwise consume it —
+# it is only used to write the RavenView GeoJSON pair. Leave unset to
+# skip the RavenView export entirely.
+rivers_shapefile: ./Data/grassmere/Raven/Raw/finalcat_info_riv_v1-0.shp
+
+# When true (default) AND rivers_shapefile is set, run_raven_inputs
+# writes two GeoJSON files into <output_dir>/Raven/RavenView/:
+#   <watershed_name>.json        — subbasins
+#   <watershed_name>Rivers.json  — rivers
+# Upload both at https://raven.uwaterloo.ca/RavenView/RavenView.html
+# to visualize the watershed.
+write_ravenview: true

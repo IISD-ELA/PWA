@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from netCDF4 import Dataset
-from shapely.geometry import Polygon
+from shapely.geometry import LineString, Polygon
 
 from pwa_raven.raven_inputs import RavenInputsConfig, RavenInputsResult, run_raven_inputs
 
@@ -154,6 +154,73 @@ def test_config_rejects_negative_forcing_margin(tmp_path: Path):
             **_minimal_config_kwargs(tmp_path),
             forcing_margin_hours=-1.0,
         )
+
+
+def test_config_rivers_shapefile_defaults_to_none(tmp_path: Path):
+    """Default config has no rivers shapefile — RavenView export is
+    inactive until the user explicitly opts in."""
+    cfg = RavenInputsConfig(**_minimal_config_kwargs(tmp_path))
+    assert cfg.rivers_shapefile is None
+    assert cfg.write_ravenview is True  # but no rivers → no-op
+
+
+def test_config_rivers_shapefile_coerces_str_to_path(tmp_path: Path):
+    """YAML deserializes rivers_shapefile as a string — coerce to Path
+    in __post_init__ so downstream code can rely on Path methods."""
+    rivers_str = str(tmp_path / "rivers.shp")
+    cfg = RavenInputsConfig(
+        **_minimal_config_kwargs(tmp_path),
+        rivers_shapefile=rivers_str,
+    )
+    assert isinstance(cfg.rivers_shapefile, Path)
+    assert cfg.rivers_shapefile == Path(rivers_str)
+
+
+def test_config_ravenview_dir_derives_under_raven(tmp_path: Path):
+    """ravenview_dir lives at {output_dir}/Raven/RavenView/ — adjacent
+    to Processed/ in the same Raven/ tree, so users see the output
+    next to the model files in the directory listing."""
+    cfg = RavenInputsConfig(**_minimal_config_kwargs(tmp_path))
+    assert cfg.ravenview_dir == cfg.raven_dir / "RavenView"
+
+
+def test_config_expected_input_files_includes_rivers_when_export_enabled(
+    tmp_path: Path,
+):
+    cfg = RavenInputsConfig(
+        **_minimal_config_kwargs(tmp_path),
+        rivers_shapefile=tmp_path / "rivers.shp",
+        write_ravenview=True,
+    )
+    assert (tmp_path / "rivers.shp") in cfg.expected_input_files()
+
+
+def test_config_expected_input_files_skips_rivers_when_export_disabled(
+    tmp_path: Path,
+):
+    """Setting rivers_shapefile alongside write_ravenview=False shouldn't
+    force the rivers file to exist — the file isn't going to be read."""
+    cfg = RavenInputsConfig(
+        **_minimal_config_kwargs(tmp_path),
+        rivers_shapefile=tmp_path / "rivers.shp",
+        write_ravenview=False,
+    )
+    assert (tmp_path / "rivers.shp") not in cfg.expected_input_files()
+
+
+def test_config_round_trips_ravenview_fields(tmp_path: Path):
+    """rivers_shapefile + write_ravenview survive YAML serialization."""
+    rivers = tmp_path / "rivers.shp"
+    cfg = RavenInputsConfig(
+        **_minimal_config_kwargs(tmp_path),
+        rivers_shapefile=rivers,
+        write_ravenview=False,
+    )
+    out = tmp_path / "rt.yml"
+    cfg.to_yaml(out)
+    rebuilt = RavenInputsConfig.from_yaml(out)
+    assert rebuilt.rivers_shapefile == rivers
+    assert rebuilt.write_ravenview is False
 
 
 def test_from_dict_rejects_missing_required(tmp_path: Path):
@@ -366,3 +433,115 @@ def test_run_raven_inputs_validates_inputs_first(tmp_path: Path):
     with pytest.raises(FileNotFoundError, match="missing"):
         run_raven_inputs(cfg)
     assert not (tmp_path / "out").exists()
+
+
+# ---------------------------------------------------------------------------
+# RavenView auto-export
+# ---------------------------------------------------------------------------
+
+
+def _build_rivers_shapefile(path: Path) -> None:
+    """Minimal rivers shapefile in EPSG:4326 — geopandas can read+reproject."""
+    gdf = gpd.GeoDataFrame(
+        {
+            "UIDENT": [101, 202],
+            "geometry": [
+                LineString([(0, 0), (1, 1), (2, 2)]),
+                LineString([(2, 2), (3, 3)]),
+            ],
+        },
+        crs="EPSG:4326",
+    )
+    gdf.to_file(path)
+
+
+def test_run_raven_inputs_writes_ravenview_when_rivers_set(
+    synthetic_raven_inputs: dict, tmp_path: Path,
+):
+    """Auto-export wiring: rivers_shapefile set → run_raven_inputs writes
+    both GeoJSONs into Raven/RavenView/ and surfaces them on the result.
+    This is the load-bearing test for the zero-discovery UX."""
+    rivers_shp = tmp_path / "rivers.shp"
+    _build_rivers_shapefile(rivers_shp)
+    cfg = _e2e_config(synthetic_raven_inputs, rivers_shapefile=rivers_shp)
+
+    result = run_raven_inputs(cfg)
+
+    assert result.ravenview_subbasins is not None
+    assert result.ravenview_rivers is not None
+    assert result.ravenview_subbasins.is_file()
+    assert result.ravenview_rivers.is_file()
+    assert result.ravenview_subbasins.parent == cfg.ravenview_dir
+    # Filenames follow RavenView's convention: <name>.json + <name>Rivers.json.
+    assert result.ravenview_subbasins.name == f"{cfg.safe_name}.json"
+    assert result.ravenview_rivers.name == f"{cfg.safe_name}Rivers.json"
+
+
+def test_run_raven_inputs_skips_ravenview_when_rivers_absent(
+    synthetic_raven_inputs: dict, caplog,
+):
+    """No rivers shapefile → no RavenView export. Step 2 logs why so the
+    user isn't left wondering why nothing landed in Raven/RavenView/."""
+    import logging
+    caplog.set_level(logging.INFO)
+    cfg = _e2e_config(synthetic_raven_inputs)  # rivers_shapefile=None by default
+
+    result = run_raven_inputs(cfg)
+
+    assert result.ravenview_subbasins is None
+    assert result.ravenview_rivers is None
+    assert not cfg.ravenview_dir.exists()
+    assert any(
+        "Skipping RavenView export" in record.message for record in caplog.records
+    )
+
+
+def test_run_raven_inputs_skips_ravenview_when_opted_out(
+    synthetic_raven_inputs: dict, tmp_path: Path,
+):
+    """write_ravenview=False → no export even when rivers_shapefile is
+    set. The flag is a hard opt-out for users who want a strict Step 2."""
+    rivers_shp = tmp_path / "rivers.shp"
+    _build_rivers_shapefile(rivers_shp)
+    cfg = _e2e_config(
+        synthetic_raven_inputs,
+        rivers_shapefile=rivers_shp,
+        write_ravenview=False,
+    )
+
+    result = run_raven_inputs(cfg)
+
+    assert result.ravenview_subbasins is None
+    assert result.ravenview_rivers is None
+    assert not cfg.ravenview_dir.exists()
+
+
+def test_run_raven_inputs_validates_rivers_shapefile_exists(
+    synthetic_raven_inputs: dict, tmp_path: Path,
+):
+    """Rivers shapefile is part of expected_input_files when RavenView is
+    enabled — a missing path fails fast with the other input checks, not
+    halfway through Step 2."""
+    cfg = _e2e_config(
+        synthetic_raven_inputs,
+        rivers_shapefile=tmp_path / "missing_rivers.shp",
+    )
+    with pytest.raises(FileNotFoundError, match="missing_rivers"):
+        run_raven_inputs(cfg)
+
+
+def test_run_raven_inputs_doesnt_require_rivers_when_opted_out(
+    synthetic_raven_inputs: dict, tmp_path: Path,
+):
+    """write_ravenview=False with a missing rivers path is allowed —
+    the file isn't going to be read. Lets users park a placeholder
+    path on a watershed where RavenView isn't wanted yet."""
+    cfg = _e2e_config(
+        synthetic_raven_inputs,
+        rivers_shapefile=tmp_path / "not_yet_provided.shp",
+        write_ravenview=False,
+    )
+    # Doesn't raise — the missing rivers file is allowed because
+    # write_ravenview is False and the file would never be opened.
+    result = run_raven_inputs(cfg)
+    assert result.ravenview_subbasins is None

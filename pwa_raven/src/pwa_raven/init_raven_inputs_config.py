@@ -79,6 +79,13 @@ def prompt_for_raven_inputs_config(
         "Path to WSC daily-discharge CSV",
         default=defaults.get("wsc_daily_csv"),
     )
+    # Optional — empty input skips RavenView visualization export.
+    rivers_default = defaults.get("rivers_shapefile", "")
+    rivers_shapefile = _prompt(
+        "Path to rivers shapefile (optional, for RavenView export — "
+        "leave blank to skip)",
+        default=rivers_default,
+    )
 
     return RavenInputsConfig(
         watershed_name=watershed_name,
@@ -87,6 +94,7 @@ def prompt_for_raven_inputs_config(
         phydap_nc=Path(phydap_nc),
         wsc_metadata_csv=Path(wsc_metadata_csv),
         wsc_daily_csv=Path(wsc_daily_csv),
+        rivers_shapefile=Path(rivers_shapefile) if rivers_shapefile else None,
     )
 
 
