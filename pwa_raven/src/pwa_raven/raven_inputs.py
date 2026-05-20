@@ -82,6 +82,15 @@ class RavenInputsConfig:
     user_start, user_end
         User-requested simulation window. Resolved with NC + WSC ranges
         via :func:`pwa_raven.raven.wsc_rvt.resolve_model_window`.
+    forcing_margin_hours
+        Hours of forcing-data headroom to reserve past the model end
+        date (default 720 = 30 days). The resolved model end is pulled
+        in by this amount when the NetCDF would otherwise pin it,
+        leaving Step 3 calibration room to time-shift the forcing
+        without running the model off the end of the file. Must exceed
+        the calibration's maximum ``runoff_offset`` (currently 100h);
+        the 30-day default gives ~7× headroom and a calendar-friendly
+        end date. Set to 0 to disable (model end = forcing end).
     avg_annual_runoff_mm
         Goes into the ``.rvp`` ``:AvgAnnualRunoff`` line (default 75).
     initial_soil_storage_mm
@@ -106,6 +115,7 @@ class RavenInputsConfig:
     curve_number: float = 63.0
     user_start: str = "1990-01-01 00:00:00"
     user_end: str = "2019-12-30 00:00:00"
+    forcing_margin_hours: float = 720.0
     avg_annual_runoff_mm: float = 75.0
     initial_soil_storage_mm: float = 15.0
     write_calibration_templates: bool = True
@@ -118,6 +128,10 @@ class RavenInputsConfig:
             "wsc_metadata_csv", "wsc_daily_csv",
         ):
             object.__setattr__(self, f, Path(getattr(self, f)))
+        if self.forcing_margin_hours < 0:
+            raise ValueError(
+                f"forcing_margin_hours must be ≥ 0, got {self.forcing_margin_hours}"
+            )
 
     # ---- derived paths ----------------------------------------------------
 
@@ -197,6 +211,7 @@ class RavenInputsConfig:
             "curve_number": self.curve_number,
             "user_start": self.user_start,
             "user_end": self.user_end,
+            "forcing_margin_hours": self.forcing_margin_hours,
             "avg_annual_runoff_mm": self.avg_annual_runoff_mm,
             "initial_soil_storage_mm": self.initial_soil_storage_mm,
             "write_calibration_templates": self.write_calibration_templates,
@@ -221,6 +236,9 @@ class RavenInputsConfig:
             curve_number=data.get("curve_number", defaults.curve_number),
             user_start=data.get("user_start", defaults.user_start),
             user_end=data.get("user_end", defaults.user_end),
+            forcing_margin_hours=data.get(
+                "forcing_margin_hours", defaults.forcing_margin_hours
+            ),
             avg_annual_runoff_mm=data.get("avg_annual_runoff_mm", defaults.avg_annual_runoff_mm),
             initial_soil_storage_mm=data.get("initial_soil_storage_mm", defaults.initial_soil_storage_mm),
             write_calibration_templates=data.get(
@@ -385,8 +403,12 @@ def run_raven_inputs(config: RavenInputsConfig) -> RavenInputsResult:
         user_end=config.user_end,
         nc_dates=nc_dates,
         wsc_dates=wsc_dates,
+        forcing_margin_hours=config.forcing_margin_hours,
     )
-    logger.info("Model window: %s → %s", model_start, model_end)
+    logger.info(
+        "Model window: %s → %s (forcing_margin_hours=%g)",
+        model_start, model_end, config.forcing_margin_hours,
+    )
 
     # 5. Generate WSC RVT.
     station_id = _read_wsc_station_id(config.wsc_metadata_csv)

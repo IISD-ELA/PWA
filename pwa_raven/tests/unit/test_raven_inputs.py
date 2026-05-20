@@ -128,6 +128,32 @@ def test_from_dict_minimal_uses_defaults(tmp_path: Path):
     assert cfg.curve_number == 63.0
     assert cfg.write_calibration_templates is True
     assert cfg.write_aspect_ratios is True
+    # 30 days × 24h. Comfortably > the 100h max runoff_offset so
+    # calibration can shift the forcing without aborting Raven.
+    assert cfg.forcing_margin_hours == 720.0
+
+
+def test_forcing_margin_hours_round_trips_through_yaml(tmp_path: Path):
+    """Custom margin survives serialization — non-default users (e.g.
+    a shorter calibration record, or no calibration at all) can set 0."""
+    cfg = RavenInputsConfig(
+        **_minimal_config_kwargs(tmp_path),
+        forcing_margin_hours=168.0,  # 1 week
+    )
+    out = tmp_path / "raven_inputs.yml"
+    cfg.to_yaml(out)
+    rebuilt = RavenInputsConfig.from_yaml(out)
+    assert rebuilt.forcing_margin_hours == 168.0
+
+
+def test_config_rejects_negative_forcing_margin(tmp_path: Path):
+    """A negative margin would *extend* the model past the forcing —
+    the exact bug we're guarding against. Reject at construction."""
+    with pytest.raises(ValueError, match="forcing_margin_hours"):
+        RavenInputsConfig(
+            **_minimal_config_kwargs(tmp_path),
+            forcing_margin_hours=-1.0,
+        )
 
 
 def test_from_dict_rejects_missing_required(tmp_path: Path):
@@ -247,15 +273,22 @@ def synthetic_raven_inputs(tmp_path: Path) -> dict:
 
 def _e2e_config(synthetic_raven_inputs: dict, **overrides) -> RavenInputsConfig:
     """Build a RavenInputsConfig with a model window that matches the synthetic NC."""
-    return RavenInputsConfig(
+    defaults = dict(
         watershed_name="testwater",
         # Both NC and WSC start 2010-01-01. Use a wide user window so the
         # NC + WSC ranges become the binding constraints (per
         # resolve_model_window's intersect rule).
         user_start="2000-01-01 00:00:00",
         user_end="2025-12-31 00:00:00",
+        # Synthetic NetCDF is only 100h long. The 30-day production
+        # default would collapse the window — turn the margin off so
+        # these e2e tests exercise the writers, not the constraint.
+        forcing_margin_hours=0.0,
+    )
+    defaults.update(overrides)
+    return RavenInputsConfig(
         **synthetic_raven_inputs,
-        **overrides,
+        **defaults,
     )
 
 
