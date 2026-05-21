@@ -1,6 +1,6 @@
 # Flood frequency analysis for the {watershed}
 
-{warning_message}
+[//]: # {warning_message}
 
 ## Note on Methods
 
@@ -23,9 +23,9 @@ With PILFs removed, a frequency anaysis was conducted on the annual peak flows b
 
 ## Diagnostic information
 
-Number of PILF events removed: {mgbt_removed}
+[Comment]: # Number of PILF events removed: {mgbt_removed}
 
-PILF event discharge low threshold: {mgbt_threshold}
+[Comment]: # PILF event discharge low threshold: {mgbt_threshold}
 
 Goodness of fit of the probability distribution: {peak_flow_goodness_fit}
 

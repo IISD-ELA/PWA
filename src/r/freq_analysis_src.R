@@ -208,7 +208,7 @@ BootstrapCI <- function(series, distribution, n.resamples=1E3, nep=nonexceeds(),
 library(scales)
 labels=label_number(accuracy = 0.01)
 
-annual_non_null <- annual_filtered %>% 
+annual_non_null <- annual %>% 
   filter(!is.na(PeakFlow))
 
 annual_series <- annual_non_null
@@ -423,10 +423,10 @@ library(jsonlite)
 json_output <- list(freq_analysis = fa_output,
   confidence = ci_output,
   event_returns = rp_df,
-  peak_flow_goodness_fit = peak_results,
-  mgbt_removed = nrow(annual) - nrow(annual_filtered),
-  mgbt_threshold = mgbt$LOThresh,
-  annual_mgbt_filtered = annual_filtered
+  peak_flow_goodness_fit = peak_results #,
+  # mgbt_removed = nrow(annual) - nrow(annual_filtered),
+  # mgbt_threshold = mgbt$LOThresh,
+  # annual_mgbt_filtered = annual_filtered
 )
 
 json_path <- paste0(data_dir,"results.json")

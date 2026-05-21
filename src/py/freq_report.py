@@ -14,18 +14,19 @@ This script performs comprehensive flood frequency analysis including:
 ### USER MUST UPDATE THE DATA DIRECTORY AND FILE NAME IN THE R FILE AS WELL AS THE USER INPUTS BELOW
 
 ### user_inputs
-dir_path = "Data/Cypress_New/freq/"
-file_name = "daily_20250911T1922.csv"
+dir_path = "Data/grassmere/freq/"
+file_name = "daily_20260309T1449.csv"
 data_path = dir_path + file_name
 
 
 # User input: specify watershed name
-watershed_name = "Cypress River"  # Update this with desired watershed name
+watershed_name = "Grassmere"  # Update this with desired watershed name
 
 
 
 # Step 0. Imports and Setup
 import os
+from pathlib import Path
 
 import pandas as pd
 import numpy as np
@@ -86,8 +87,6 @@ fig3.savefig(dir_path + 'overlay_years.png', dpi=150)
 
 import subprocess
 
-    
-subprocess.run(["Rscript", "./src/r/freq_analysis_src.R"])
 # subprocess.run(["Rscript", "src/r/freq_analysis_src.R"])
 
 # Check the temp_path is the same as the one specified in the R file
@@ -185,9 +184,9 @@ for item in freq_data:
     nearest_event = item['nearest_event']
     event_returns += f"| {rp:.2f} | {estimate:.2f} | {nearest_event} |\n"
 
-# Extract values from results.json
-mgbt_removed = read_json['mgbt_removed'][0]
-mgbt_threshold = read_json['mgbt_threshold'][0]
+# # Extract values from results.json
+# mgbt_removed = read_json['mgbt_removed'][0]
+# mgbt_threshold = read_json['mgbt_threshold'][0]
 
 # Build goodness of fit summary (handle null values)
 gof = read_json['peak_flow_goodness_fit']
@@ -196,28 +195,28 @@ if gof['ad_pval'][0] is not None:
 else:
     peak_flow_gof = "Goodness of fit statistics not available"
 
-pct_removed = (mgbt_removed / len(wy_summary)) * 100
+# pct_removed = (mgbt_removed / len(wy_summary)) * 100
 
 # Replace placeholders in template
 output_content = template_content.replace('{watershed}', watershed_name)
 output_content = output_content.replace('{event_returns}', event_returns)
-output_content = output_content.replace('{mgbt_removed}', str(mgbt_removed))
-output_content = output_content.replace('{mgbt_threshold}', str(mgbt_threshold))
+# output_content = output_content.replace('{mgbt_removed}', str(mgbt_removed))
+# output_content = output_content.replace('{mgbt_threshold}', str(mgbt_threshold))
 output_content = output_content.replace('{peak_flow_goodness_fit}', peak_flow_gof)
 
-if pct_removed == 0:
-    warning_msg = ""
-elif pct_removed < 10:
-    warning_msg = f"⚠️ PLEASE NOTE: {pct_removed:.1f}% of water years were removed due to PILF events (threshold: {mgbt_threshold:.2f} m³/s). \ 
-    \n This may have a minor impact on frequency estimates, especially for lower return periods. \
-    \n The goodness of fit calculations were performed on the reduced dataset, so interpret results with caution."
+# if pct_removed == 0:
+#     warning_msg = ""
+# elif pct_removed < 10:
+#     warning_msg = f"⚠️ PLEASE NOTE: {pct_removed:.1f}% of water years were removed due to PILF events (threshold: {mgbt_threshold:.2f} m³/s). \ 
+#     \n This may have a minor impact on frequency estimates, especially for lower return periods. \
+#     \n The goodness of fit calculations were performed on the reduced dataset, so interpret results with caution."
 
-elif pct_removed > 20:
-    warning_msg = f"❌ WARNING: {pct_removed:.1f}% of water years were removed due to PILF events values (threshold: {mgbt_threshold:.2f} m³/s). \
-    \n This may have a sizeable impact on frequency estimates for all return periods estimated. \
-    \n The goodness of fit calculations were performed on the reduced dataset, so interpret results with caution."
+# elif pct_removed > 20:
+#     warning_msg = f"❌ WARNING: {pct_removed:.1f}% of water years were removed due to PILF events values (threshold: {mgbt_threshold:.2f} m³/s). \
+#     \n This may have a sizeable impact on frequency estimates for all return periods estimated. \
+#     \n The goodness of fit calculations were performed on the reduced dataset, so interpret results with caution."
 
-output_content = output_content.replace('{warning_message}', warning_msg)
+# output_content = output_content.replace('{warning_message}', warning_msg)
 
 # Write to output file
 output_path = dir_path + "freq_analysis.md"
@@ -227,6 +226,6 @@ with open(output_path, 'w') as f:
 
 print(f"\n✓ Report generated successfully: {output_path}")
 print(f"  Watershed: {watershed_name}")
-print(f"  PILF events removed: {mgbt_removed}")
-print(f"  PILF threshold: {mgbt_threshold}")
+# print(f"  PILF events removed: {mgbt_removed}")
+# print(f"  PILF threshold: {mgbt_threshold}")
 
