@@ -22,7 +22,7 @@ gap list, not whether any gaps are reported at all.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
@@ -40,6 +40,7 @@ def resolve_model_window(
     user_end: datetime | str,
     nc_dates: tuple[datetime, datetime] | None = None,
     wsc_dates: tuple[datetime, datetime] | None = None,
+    forcing_margin_hours: float = 0.0,
 ) -> tuple[datetime, datetime]:
     """Pick the largest model window covered by every input data source.
 
@@ -47,23 +48,39 @@ def resolve_model_window(
     cover. Returns:
 
       * ``start = max(user_start, nc_start, wsc_start)``
-      * ``end   = min(user_end,   nc_end,   wsc_end)``
+      * ``end   = min(user_end,   nc_end - forcing_margin, wsc_end)``
 
     Pass ``nc_dates`` and/or ``wsc_dates`` as ``(start, end)`` tuples
     when those sources are available; pass ``None`` to skip them
     (useful in tests).
+
+    ``forcing_margin_hours`` reserves headroom past the model end so
+    Step 3 calibration can time-shift the forcing NetCDF without
+    running the model off the end of the file. It is subtracted from
+    ``nc_dates[1]`` *before* the intersect, so it only bites when the
+    NetCDF is what would otherwise pin the model end. When ``nc_dates``
+    is ``None`` it is a no-op (no NetCDF to protect against). Set to 0
+    (the default) for no headroom.
 
     Raises ``ValueError`` if the resolved window is empty (start > end).
 
     Replaces the cell-34 inline ``max()/min()`` block in
     ``2_raven_input_gen.ipynb``.
     """
+    if forcing_margin_hours < 0:
+        raise ValueError(
+            f"forcing_margin_hours must be ≥ 0, got {forcing_margin_hours}"
+        )
+
     starts: list[datetime] = [pd.to_datetime(user_start).to_pydatetime()]
     ends: list[datetime] = [pd.to_datetime(user_end).to_pydatetime()]
 
     if nc_dates is not None:
         starts.append(pd.to_datetime(nc_dates[0]).to_pydatetime())
-        ends.append(pd.to_datetime(nc_dates[1]).to_pydatetime())
+        nc_end = pd.to_datetime(nc_dates[1]).to_pydatetime()
+        if forcing_margin_hours > 0:
+            nc_end = nc_end - timedelta(hours=forcing_margin_hours)
+        ends.append(nc_end)
 
     if wsc_dates is not None:
         starts.append(pd.to_datetime(wsc_dates[0]).to_pydatetime())
@@ -73,11 +90,20 @@ def resolve_model_window(
     resolved_end = min(ends)
 
     if resolved_start > resolved_end:
+        margin_hint = ""
+        if forcing_margin_hours > 0 and nc_dates is not None:
+            margin_hint = (
+                f" (forcing_margin_hours={forcing_margin_hours} pulled the "
+                f"NetCDF end back from {pd.to_datetime(nc_dates[1])} to "
+                f"{pd.to_datetime(nc_dates[1]) - timedelta(hours=forcing_margin_hours)}; "
+                "lower the margin or extend user_start/user_end)"
+            )
         raise ValueError(
             f"Resolved model window is empty: start={resolved_start} > "
             f"end={resolved_end}. Sources didn't overlap — check the "
             f"NetCDF time variable and WSC date range against your "
             f"requested user_start/user_end."
+            + margin_hint
         )
 
     return resolved_start, resolved_end

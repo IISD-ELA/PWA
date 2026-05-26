@@ -349,6 +349,105 @@ def test_export_for_ravenview_writes_both_files(
     assert riv_path.is_file()
 
 
+def test_export_for_ravenview_creates_missing_output_dir(
+    synthetic_subbasin_shapefile: Path,
+    synthetic_rivers_shapefile: Path,
+    tmp_path: Path,
+):
+    """The CLI / from-config callers may pass an output dir that doesn't
+    exist yet. export_for_ravenview should create it rather than crash
+    with a FileNotFoundError from the underlying writers."""
+    out_dir = tmp_path / "new" / "nested" / "ravenview"
+    assert not out_dir.exists()
+    sub_path, _ = export_for_ravenview(
+        subbasin_shapefile=synthetic_subbasin_shapefile,
+        rivers_shapefile=synthetic_rivers_shapefile,
+        output_dir=out_dir,
+        watershed_name="x",
+        schema="liard",
+    )
+    assert sub_path.is_file()
+
+
+# ---------------------------------------------------------------------------
+# export_for_ravenview_from_config
+# ---------------------------------------------------------------------------
+
+
+def test_export_from_config_uses_config_fields(
+    synthetic_clrh_subbasin_shapefile: Path,
+    synthetic_rivers_shapefile: Path,
+    tmp_path: Path,
+):
+    """The convenience helper derives subbasins + output_dir +
+    watershed_name from the config, so notebook users only need the
+    config object (and a rivers path if not on the config)."""
+    from pwa_raven.raven.ravenview import export_for_ravenview_from_config
+    from pwa_raven.raven_inputs import RavenInputsConfig
+
+    cfg = RavenInputsConfig(
+        watershed_name="grassmere",
+        output_dir=tmp_path / "out",
+        subbasins_shapefile=synthetic_clrh_subbasin_shapefile,
+        phydap_nc=tmp_path / "n.nc",
+        wsc_metadata_csv=tmp_path / "m.csv",
+        wsc_daily_csv=tmp_path / "d.csv",
+        rivers_shapefile=synthetic_rivers_shapefile,
+    )
+
+    sub_path, riv_path = export_for_ravenview_from_config(cfg)
+
+    assert sub_path == cfg.ravenview_dir / "grassmere.json"
+    assert riv_path == cfg.ravenview_dir / "grassmereRivers.json"
+    assert sub_path.is_file()
+    assert riv_path.is_file()
+
+
+def test_export_from_config_accepts_rivers_override(
+    synthetic_clrh_subbasin_shapefile: Path,
+    synthetic_rivers_shapefile: Path,
+    tmp_path: Path,
+):
+    """A config without rivers_shapefile is fine if the caller supplies
+    one — common when generating a one-off export."""
+    from pwa_raven.raven.ravenview import export_for_ravenview_from_config
+    from pwa_raven.raven_inputs import RavenInputsConfig
+
+    cfg = RavenInputsConfig(
+        watershed_name="grassmere",
+        output_dir=tmp_path / "out",
+        subbasins_shapefile=synthetic_clrh_subbasin_shapefile,
+        phydap_nc=tmp_path / "n.nc",
+        wsc_metadata_csv=tmp_path / "m.csv",
+        wsc_daily_csv=tmp_path / "d.csv",
+    )
+    sub_path, _ = export_for_ravenview_from_config(
+        cfg, rivers_shapefile=synthetic_rivers_shapefile,
+    )
+    assert sub_path.is_file()
+
+
+def test_export_from_config_raises_when_no_rivers_anywhere(
+    synthetic_clrh_subbasin_shapefile: Path,
+    tmp_path: Path,
+):
+    """Calling without rivers on the config AND without an override is a
+    clear user error — raise with a message pointing at both sources."""
+    from pwa_raven.raven.ravenview import export_for_ravenview_from_config
+    from pwa_raven.raven_inputs import RavenInputsConfig
+
+    cfg = RavenInputsConfig(
+        watershed_name="x",
+        output_dir=tmp_path / "out",
+        subbasins_shapefile=synthetic_clrh_subbasin_shapefile,
+        phydap_nc=tmp_path / "n.nc",
+        wsc_metadata_csv=tmp_path / "m.csv",
+        wsc_daily_csv=tmp_path / "d.csv",
+    )
+    with pytest.raises(ValueError, match="rivers_shapefile"):
+        export_for_ravenview_from_config(cfg)
+
+
 # ---------------------------------------------------------------------------
 # validate_ravenview_geojson
 # ---------------------------------------------------------------------------

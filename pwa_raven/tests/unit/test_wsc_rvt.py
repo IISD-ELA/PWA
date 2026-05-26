@@ -302,3 +302,91 @@ def test_resolve_model_window_accepts_string_or_datetime():
     )
     assert start == datetime(2010, 1, 1)
     assert end == datetime(2015, 12, 31)
+
+
+# ---------------------------------------------------------------------------
+# resolve_model_window — forcing_margin_hours
+# ---------------------------------------------------------------------------
+
+from datetime import timedelta
+
+
+def test_resolve_model_window_forcing_margin_pulls_nc_end_back():
+    """720h (30d) margin should pull the resolved end ~30 days inside
+    the NetCDF's last timestamp — the calibration runoff_offset shifts
+    the forcing later in time, and the model must stop before the
+    shifted forcing runs out."""
+    nc_end = datetime(2018, 12, 28)
+    start, end = resolve_model_window(
+        user_start="1990-01-01",
+        user_end="2030-01-01",
+        nc_dates=(datetime(2003, 1, 1), nc_end),
+        forcing_margin_hours=720.0,
+    )
+    assert start == datetime(2003, 1, 1)
+    assert end == nc_end - timedelta(hours=720)
+    # Sanity: 720h is 30 days, so end should land in late November 2018.
+    assert end.month == 11 and end.year == 2018
+
+
+def test_resolve_model_window_margin_zero_matches_unmargined():
+    """Default 0 must reproduce the historical no-margin behaviour."""
+    args = dict(
+        user_start="2000-01-01",
+        user_end="2025-12-31",
+        nc_dates=(datetime(2005, 1, 1), datetime(2018, 12, 31)),
+        wsc_dates=(datetime(2003, 6, 15), datetime(2019, 6, 15)),
+    )
+    no_margin = resolve_model_window(**args)
+    with_zero = resolve_model_window(**args, forcing_margin_hours=0.0)
+    assert no_margin == with_zero
+
+
+def test_resolve_model_window_margin_doesnt_apply_when_wsc_is_tighter():
+    """The margin protects against the forcing constraint specifically.
+    When WSC's end already sits inside ``nc_end − margin``, WSC wins
+    the intersect and the margin has no effect — that's the correct
+    semantic, since the forcing has plenty of headroom anyway."""
+    _start, end = resolve_model_window(
+        user_start="2000-01-01",
+        user_end="2025-12-31",
+        nc_dates=(datetime(2005, 1, 1), datetime(2020, 12, 31)),
+        wsc_dates=(datetime(2003, 1, 1), datetime(2018, 6, 30)),
+        forcing_margin_hours=720.0,
+    )
+    assert end == datetime(2018, 6, 30)  # WSC end, not nc_end - 30d
+
+
+def test_resolve_model_window_margin_noop_without_nc_dates():
+    """No NetCDF in the constraint → nothing to reserve headroom from,
+    margin is silently ignored."""
+    _start, end = resolve_model_window(
+        user_start="2010-01-01",
+        user_end="2015-12-31",
+        forcing_margin_hours=720.0,
+    )
+    assert end == datetime(2015, 12, 31)  # unchanged
+
+
+def test_resolve_model_window_margin_can_empty_the_window():
+    """A margin large enough to pull nc_end before nc_start (or before
+    user_start) must raise the standard empty-window ValueError, with
+    a hint pointing at the margin so the user knows what to lower."""
+    with pytest.raises(ValueError, match="forcing_margin_hours"):
+        resolve_model_window(
+            user_start="2018-12-01",
+            user_end="2020-01-01",
+            nc_dates=(datetime(2003, 1, 1), datetime(2018, 12, 28)),
+            forcing_margin_hours=24 * 365 * 20,  # 20 years of margin
+        )
+
+
+def test_resolve_model_window_margin_rejects_negative():
+    """A negative margin would *extend* the model past the forcing —
+    exactly the bug we're preventing. Reject at the boundary."""
+    with pytest.raises(ValueError, match="forcing_margin_hours must be"):
+        resolve_model_window(
+            user_start="2010-01-01",
+            user_end="2015-12-31",
+            forcing_margin_hours=-1.0,
+        )

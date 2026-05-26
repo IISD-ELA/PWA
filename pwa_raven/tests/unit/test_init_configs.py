@@ -196,6 +196,7 @@ def test_raven_inputs_main_writes_yaml_and_round_trips(monkeypatch, tmp_path: Pa
         str(tmp_path / "Runoff" / "adj.nc"),                 # phydap_nc
         str(tmp_path / "wsc" / "metadata_05NF002.csv"),      # wsc_metadata_csv
         str(tmp_path / "wsc" / "daily_05NF002.csv"),         # wsc_daily_csv
+        "",                                                  # rivers_shapefile (skip)
     ])
 
     rc = raven_inputs_main([str(out)])
@@ -207,6 +208,29 @@ def test_raven_inputs_main_writes_yaml_and_round_trips(monkeypatch, tmp_path: Pa
     assert cfg.curve_number == 63.0   # default
     assert cfg.write_calibration_templates is True   # default
     assert cfg.write_aspect_ratios is True   # default
+    # Empty rivers input → None, so Step 2 will skip RavenView export.
+    assert cfg.rivers_shapefile is None
+
+
+def test_raven_inputs_main_captures_rivers_shapefile_when_provided(
+    monkeypatch, tmp_path: Path, capsys,
+):
+    out = tmp_path / "raven_inputs.yml"
+    rivers = tmp_path / "Raven" / "Raw" / "finalcat_info_riv_v1-0.shp"
+    _stub_inputs(monkeypatch, [
+        "grassmere",
+        str(tmp_path / "Data"),
+        str(tmp_path / "subbasins" / "deps.shp"),
+        str(tmp_path / "Runoff" / "adj.nc"),
+        str(tmp_path / "wsc" / "metadata_05NF002.csv"),
+        str(tmp_path / "wsc" / "daily_05NF002.csv"),
+        str(rivers),
+    ])
+
+    assert raven_inputs_main([str(out)]) == 0
+    cfg = RavenInputsConfig.from_yaml(out)
+    assert cfg.rivers_shapefile == rivers
+    assert cfg.write_ravenview is True  # default — export will run
 
 
 def test_raven_inputs_main_refuses_overwrite_without_force(monkeypatch, tmp_path: Path, capsys):
@@ -227,6 +251,7 @@ def test_raven_inputs_main_overwrites_with_force(monkeypatch, tmp_path: Path):
     _stub_inputs(monkeypatch, [
         "fresh", str(tmp_path), str(tmp_path / "s.shp"),
         str(tmp_path / "n.nc"), str(tmp_path / "m.csv"), str(tmp_path / "d.csv"),
+        "",  # rivers_shapefile skipped
     ])
     rc = raven_inputs_main([str(out), "--force"])
     assert rc == 0

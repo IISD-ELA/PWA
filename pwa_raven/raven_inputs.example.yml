@@ -50,6 +50,17 @@ curve_number: 63.0
 user_start: "1990-01-01 00:00:00"
 user_end:   "2019-12-30 00:00:00"
 
+# Hours of forcing-data headroom past the model end date. The resolved
+# model end gets pulled in by this many hours when the NetCDF would
+# otherwise pin it, leaving Step 3 calibration room to time-shift the
+# forcing (the calibrated 'runoff_offset', up to 100h) without running
+# the model off the end of the forcing file.
+#
+# Default 720 = 30 days, ~7× the current 100h offset cap. Set to 0 if
+# you are NOT running Step 3 calibration with runoff_offset enabled —
+# e.g. a forward-only model run, or calibration with --no-phydap-adj.
+forcing_margin_hours: 720.0
+
 # ---- Static .rvp/.rvc parameters --------------------------------------
 
 # Average annual runoff for the global :AvgAnnualRunoff line in .rvp.
@@ -73,3 +84,19 @@ write_aspect_ratios: true
 
 # NetCDF variable name referenced by the .rvt GriddedForcing block.
 forcing_var_name: runoff
+
+# ---- RavenView visualization export -----------------------------------
+
+# Path to the watershed's rivers shapefile (raw CLRH layer, e.g.
+# finalcat_info_riv_v1-0.shp). Step 2 doesn't otherwise consume it —
+# it is only used to write the RavenView GeoJSON pair. Leave unset to
+# skip the RavenView export entirely.
+rivers_shapefile: ./Data/grassmere/Raven/Raw/finalcat_info_riv_v1-0.shp
+
+# When true (default) AND rivers_shapefile is set, run_raven_inputs
+# writes two GeoJSON files into <output_dir>/Raven/RavenView/:
+#   <watershed_name>.json        — subbasins
+#   <watershed_name>Rivers.json  — rivers
+# Upload both at https://raven.uwaterloo.ca/RavenView/RavenView.html
+# to visualize the watershed.
+write_ravenview: true

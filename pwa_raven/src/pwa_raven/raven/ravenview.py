@@ -368,6 +368,7 @@ def export_for_ravenview(
     Returns ``(subbasin_path, rivers_path)``.
     """
     output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
     sub_path = subbasins_to_ravenview_geojson(
         subbasin_shapefile,
         output_dir / f"{watershed_name}.json",
@@ -380,6 +381,55 @@ def export_for_ravenview(
         coord_precision=coord_precision,
     )
     return sub_path, riv_path
+
+
+def export_for_ravenview_from_config(
+    config,
+    *,
+    rivers_shapefile: Path | str | None = None,
+    output_dir: Path | str | None = None,
+    coord_precision: int = DEFAULT_COORD_PRECISION,
+) -> tuple[Path, Path]:
+    """Convenience wrapper — pull subbasins, output dir, and watershed name
+    from a :class:`pwa_raven.raven_inputs.RavenInputsConfig`.
+
+    The standalone :func:`export_for_ravenview` needs four arguments;
+    this helper needs at most one (``rivers_shapefile``), and zero if
+    the config already carries it.
+
+    Parameters
+    ----------
+    config
+        A ``RavenInputsConfig``. Provides ``subbasins_shapefile``,
+        ``watershed_name``, ``ravenview_dir`` (default output target),
+        and — if set — ``rivers_shapefile``.
+    rivers_shapefile
+        Override for the config's rivers path. Required if the config
+        doesn't carry one.
+    output_dir
+        Override for the default ``<output_dir>/Raven/RavenView/``
+        target. Useful when generating a one-off comparison export.
+
+    Returns ``(subbasin_path, rivers_path)``.
+
+    Raises ``ValueError`` if no rivers shapefile is available from
+    either source.
+    """
+    rivers = rivers_shapefile if rivers_shapefile is not None else config.rivers_shapefile
+    if rivers is None:
+        raise ValueError(
+            "No rivers shapefile available — set rivers_shapefile on the "
+            "RavenInputsConfig or pass it explicitly to this function."
+        )
+    target = Path(output_dir) if output_dir is not None else config.ravenview_dir
+    return export_for_ravenview(
+        subbasin_shapefile=config.subbasins_shapefile,
+        rivers_shapefile=rivers,
+        output_dir=target,
+        watershed_name=config.safe_name,
+        schema="clrh",
+        coord_precision=coord_precision,
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -82,6 +82,15 @@ class RavenInputsConfig:
     user_start, user_end
         User-requested simulation window. Resolved with NC + WSC ranges
         via :func:`pwa_raven.raven.wsc_rvt.resolve_model_window`.
+    forcing_margin_hours
+        Hours of forcing-data headroom to reserve past the model end
+        date (default 720 = 30 days). The resolved model end is pulled
+        in by this amount when the NetCDF would otherwise pin it,
+        leaving Step 3 calibration room to time-shift the forcing
+        without running the model off the end of the file. Must exceed
+        the calibration's maximum ``runoff_offset`` (currently 100h);
+        the 30-day default gives ~7× headroom and a calendar-friendly
+        end date. Set to 0 to disable (model end = forcing end).
     avg_annual_runoff_mm
         Goes into the ``.rvp`` ``:AvgAnnualRunoff`` line (default 75).
     initial_soil_storage_mm
@@ -95,6 +104,16 @@ class RavenInputsConfig:
     forcing_var_name
         NetCDF variable name referenced by the ``.rvt`` GriddedForcing
         block (default ``"runoff"``).
+    rivers_shapefile
+        Optional path to the watershed's rivers shapefile (the raw
+        CLRH ``finalcat_info_riv_v1-0.shp`` or equivalent). Only used
+        for the RavenView export side-output; the rest of Step 2
+        doesn't read it. Leave as ``None`` to skip RavenView export.
+    write_ravenview
+        If True (default) AND ``rivers_shapefile`` is set, also export
+        RavenView-compatible GeoJSON to ``<output_dir>/Raven/RavenView/``
+        (one subbasin file, one rivers file). Has no effect when
+        ``rivers_shapefile`` is None.
     """
 
     watershed_name: str
@@ -106,11 +125,14 @@ class RavenInputsConfig:
     curve_number: float = 63.0
     user_start: str = "1990-01-01 00:00:00"
     user_end: str = "2019-12-30 00:00:00"
+    forcing_margin_hours: float = 720.0
     avg_annual_runoff_mm: float = 75.0
     initial_soil_storage_mm: float = 15.0
     write_calibration_templates: bool = True
     write_aspect_ratios: bool = True
     forcing_var_name: str = "runoff"
+    rivers_shapefile: Optional[Path] = None
+    write_ravenview: bool = True
 
     def __post_init__(self) -> None:
         for f in (
@@ -118,6 +140,13 @@ class RavenInputsConfig:
             "wsc_metadata_csv", "wsc_daily_csv",
         ):
             object.__setattr__(self, f, Path(getattr(self, f)))
+        # rivers_shapefile is optional; coerce only when supplied.
+        if self.rivers_shapefile is not None:
+            object.__setattr__(self, "rivers_shapefile", Path(self.rivers_shapefile))
+        if self.forcing_margin_hours < 0:
+            raise ValueError(
+                f"forcing_margin_hours must be ≥ 0, got {self.forcing_margin_hours}"
+            )
 
     # ---- derived paths ----------------------------------------------------
 
@@ -136,6 +165,11 @@ class RavenInputsConfig:
     @property
     def input_dir(self) -> Path:
         return self.processed_dir / "input"
+
+    @property
+    def ravenview_dir(self) -> Path:
+        """Output directory for the RavenView GeoJSON pair (when enabled)."""
+        return self.raven_dir / "RavenView"
 
     @property
     def safe_name(self) -> str:
@@ -168,12 +202,18 @@ class RavenInputsConfig:
     # ---- input validation -------------------------------------------------
 
     def expected_input_files(self) -> list[Path]:
-        return [
+        files: list[Path] = [
             self.subbasins_shapefile,
             self.phydap_nc,
             self.wsc_metadata_csv,
             self.wsc_daily_csv,
         ]
+        # Rivers shapefile is only validated when RavenView export will
+        # actually consume it — if the user has set it but disabled
+        # write_ravenview, don't require the file to exist.
+        if self.rivers_shapefile is not None and self.write_ravenview:
+            files.append(self.rivers_shapefile)
+        return files
 
     def validate_inputs_exist(self) -> None:
         missing = [p for p in self.expected_input_files() if not p.is_file()]
@@ -197,11 +237,16 @@ class RavenInputsConfig:
             "curve_number": self.curve_number,
             "user_start": self.user_start,
             "user_end": self.user_end,
+            "forcing_margin_hours": self.forcing_margin_hours,
             "avg_annual_runoff_mm": self.avg_annual_runoff_mm,
             "initial_soil_storage_mm": self.initial_soil_storage_mm,
             "write_calibration_templates": self.write_calibration_templates,
             "write_aspect_ratios": self.write_aspect_ratios,
             "forcing_var_name": self.forcing_var_name,
+            "rivers_shapefile": (
+                str(self.rivers_shapefile) if self.rivers_shapefile is not None else None
+            ),
+            "write_ravenview": self.write_ravenview,
         }
 
     @classmethod
@@ -221,6 +266,9 @@ class RavenInputsConfig:
             curve_number=data.get("curve_number", defaults.curve_number),
             user_start=data.get("user_start", defaults.user_start),
             user_end=data.get("user_end", defaults.user_end),
+            forcing_margin_hours=data.get(
+                "forcing_margin_hours", defaults.forcing_margin_hours
+            ),
             avg_annual_runoff_mm=data.get("avg_annual_runoff_mm", defaults.avg_annual_runoff_mm),
             initial_soil_storage_mm=data.get("initial_soil_storage_mm", defaults.initial_soil_storage_mm),
             write_calibration_templates=data.get(
@@ -230,6 +278,8 @@ class RavenInputsConfig:
                 "write_aspect_ratios", defaults.write_aspect_ratios
             ),
             forcing_var_name=data.get("forcing_var_name", defaults.forcing_var_name),
+            rivers_shapefile=data.get("rivers_shapefile", defaults.rivers_shapefile),
+            write_ravenview=data.get("write_ravenview", defaults.write_ravenview),
         )
 
     def to_yaml(self, path: Path | str) -> Path:
@@ -273,6 +323,8 @@ class RavenInputsResult:
     hru_areas_csv: Optional[Path] = None
     tp_tc_csv: Optional[Path] = None
     aspect_ratios_csv: Optional[Path] = None
+    ravenview_subbasins: Optional[Path] = None
+    ravenview_rivers: Optional[Path] = None
 
 
 # ---------------------------------------------------------------------------
@@ -385,8 +437,12 @@ def run_raven_inputs(config: RavenInputsConfig) -> RavenInputsResult:
         user_end=config.user_end,
         nc_dates=nc_dates,
         wsc_dates=wsc_dates,
+        forcing_margin_hours=config.forcing_margin_hours,
     )
-    logger.info("Model window: %s → %s", model_start, model_end)
+    logger.info(
+        "Model window: %s → %s (forcing_margin_hours=%g)",
+        model_start, model_end, config.forcing_margin_hours,
+    )
 
     # 5. Generate WSC RVT.
     station_id = _read_wsc_station_id(config.wsc_metadata_csv)
@@ -495,6 +551,51 @@ def run_raven_inputs(config: RavenInputsConfig) -> RavenInputsResult:
         compute_aspect_ratios(raw_gdf).to_csv(aspect_ratios_csv, index=False)
         logger.info("Wrote aspect ratios → %s", aspect_ratios_csv)
 
+    # 9. Optional: RavenView GeoJSON pair (subbasins + rivers). Only when
+    #    the user has supplied a rivers shapefile, since the rivers file
+    #    isn't otherwise needed in Step 2. Failure here is reported but
+    #    doesn't fail the run — the .rv* model files are already written.
+    ravenview_subbasins = ravenview_rivers = None
+    if config.write_ravenview and config.rivers_shapefile is not None:
+        from pwa_raven.raven.ravenview import (
+            export_for_ravenview,
+            validate_ravenview_geojson,
+        )
+
+        config.ravenview_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            ravenview_subbasins, ravenview_rivers = export_for_ravenview(
+                subbasin_shapefile=config.subbasins_shapefile,
+                rivers_shapefile=config.rivers_shapefile,
+                output_dir=config.ravenview_dir,
+                watershed_name=config.safe_name,
+                schema="clrh",
+            )
+            for label, path in (
+                ("subbasins", ravenview_subbasins),
+                ("rivers", ravenview_rivers),
+            ):
+                problems = validate_ravenview_geojson(path, kind=label)
+                if problems:
+                    logger.warning(
+                        "RavenView %s file has %d structural issue(s): %s",
+                        label, len(problems), "; ".join(problems[:3]),
+                    )
+            logger.info(
+                "Wrote RavenView export → %s (upload at "
+                "https://raven.uwaterloo.ca/RavenView/RavenView.html)",
+                config.ravenview_dir,
+            )
+        except Exception as exc:
+            # Don't fail the whole Step 2 over a visualization side-output.
+            logger.error("RavenView export failed: %s", exc, exc_info=True)
+            ravenview_subbasins = ravenview_rivers = None
+    elif config.write_ravenview and config.rivers_shapefile is None:
+        logger.info(
+            "Skipping RavenView export: rivers_shapefile not set in config. "
+            "Set it to the watershed's rivers .shp to enable."
+        )
+
     logger.info("Raven input generation complete. Outputs in %s", config.processed_dir)
     return RavenInputsResult(
         rvi=rvi,
@@ -511,4 +612,6 @@ def run_raven_inputs(config: RavenInputsConfig) -> RavenInputsResult:
         hru_areas_csv=hru_areas_csv,
         tp_tc_csv=tp_tc_csv,
         aspect_ratios_csv=aspect_ratios_csv,
+        ravenview_subbasins=ravenview_subbasins,
+        ravenview_rivers=ravenview_rivers,
     )
