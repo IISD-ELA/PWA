@@ -43,7 +43,7 @@ import shutil
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import geopandas as gpd
 import numpy as np
@@ -621,6 +621,12 @@ class SpotPySetup:
 
         self.rank = _resolve_mpi_rank()
         self._call_count = 0
+        # Optional tqdm-like progress object set by run_calibration on
+        # rank 0; .update(1) is called once per finished iteration so
+        # users see steady progress even when Raven's stdout is buffered.
+        # Anything with an .update(int) method works (duck-typed) — the
+        # Any type lets tests inject a Mock without a pyright complaint.
+        self.progress_bar: Optional[Any] = None
 
         # Decide working directory (per-rank for MPI, shared for serial).
         if config.is_mpi:
@@ -739,10 +745,25 @@ class SpotPySetup:
             logger.info("phydap_adj off — writing unshifted forcing %s", adj_path.name)
         netcdf.time_offset(template_path, adj_path, offset=offset)
 
+        # Per-iteration pacing logs. Frame the slow Raven invocation
+        # between two timestamped INFO lines so users see "alive AND
+        # finished a unit of work in N seconds" — the diagnostic
+        # signal that prevents premature Ctrl-C during long runs.
+        rank_prefix = f"[rank {self.rank}] " if self.config.is_mpi else ""
+        logger.info(
+            "%sIteration %d/%d — running Raven...",
+            rank_prefix, self._call_count, self.config.repetitions,
+        )
+        raven_started_at = time.monotonic()
         raven_runner.run_raven(
             self.config.model_name,
             sim_dir,
             raven_binary=self.config.raven_binary,
+        )
+        raven_elapsed = time.monotonic() - raven_started_at
+        logger.info(
+            "%sIteration %d/%d — Raven completed in %.1fs",
+            rank_prefix, self._call_count, self.config.repetitions, raven_elapsed,
         )
 
         subbasin_id = f"sub{self.inputs.outlet}"
@@ -774,11 +795,15 @@ class SpotPySetup:
 
         value = evaluate_objective(self.config.obj_fn, sim, obs)
         logger.info(
-            "Objective %s = %.6f for params %s",
-            self.config.obj_fn,
-            value,
-            dict(rounded),
+            "%sIteration %d/%d done — %s = %.6f",
+            rank_prefix, self._call_count, self.config.repetitions,
+            self.config.obj_fn, value,
         )
+        logger.debug("Iteration %d params: %s", self._call_count, dict(rounded))
+        # Tick the tqdm bar if one is attached. run_calibration sets
+        # this on rank 0 only — other ranks pass through silently.
+        if self.progress_bar is not None:
+            self.progress_bar.update(1)
         # Return the objective value wrapped in a single-element list.
         # This calibration uses the "simulation() returns the metric"
         # SPOTPY idiom (evaluation() returns the target, objectivefunction()

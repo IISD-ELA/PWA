@@ -200,9 +200,31 @@ def run_calibration(
         dbformat=db_format,
         save_sim=save_sim,
     )
-    # Algorithm-specific knobs (rope's `subsets`, demcz's `nChains`, ...)
-    # ride along via config.algorithm_kwargs — mc takes none.
-    sampler.sample(reps, **config.algorithm_kwargs)
+
+    # Progress bar on rank 0 only. tqdm.auto picks the right renderer:
+    # a real widget in Jupyter, a terminal bar in CLI. Other ranks log
+    # per-iteration but don't fight for stdout. The bar total is the
+    # user-requested rep count; in MPI mode rank 0 sees a fraction of
+    # those, so the bar may close short of 100% — that's fine, the
+    # per-iteration log lines are the ground truth.
+    progress_bar = None
+    if setup.rank == 0:
+        from tqdm.auto import tqdm
+        progress_bar = tqdm(
+            total=reps,
+            desc=f"Calibrating {config.model_name}",
+            unit="iter",
+            dynamic_ncols=True,
+        )
+        setup.progress_bar = progress_bar
+
+    try:
+        # Algorithm-specific knobs (rope's `subsets`, demcz's `nChains`, ...)
+        # ride along via config.algorithm_kwargs — mc takes none.
+        sampler.sample(reps, **config.algorithm_kwargs)
+    finally:
+        if progress_bar is not None:
+            progress_bar.close()
     logger.info("Calibration complete: %d repetitions written to %s", reps, dbname)
     return dbname
 

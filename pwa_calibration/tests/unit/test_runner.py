@@ -11,6 +11,7 @@ for integration tests. This module covers the testable surfaces:
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -23,6 +24,17 @@ from pwa_calibration.runner import (
     safe_get_best_runs,
 )
 from pwa_calibration.setup import CalibrationConfig
+
+
+def _fake_setup(rank: int = 1) -> SimpleNamespace:
+    """Stand-in for SpotPySetup used by the flow-shape tests.
+
+    Defaults to rank=1 so run_calibration skips the tqdm bar entirely —
+    most of these tests are about *which sampler runs with what args*
+    and don't want a real progress bar polluting stdout. The rank-0
+    progress-bar path has its own dedicated tests below.
+    """
+    return SimpleNamespace(rank=rank, progress_bar=None)
 
 
 # ---------------------------------------------------------------------------
@@ -237,7 +249,7 @@ def test_run_calibration_calls_prepare_when_staging_set(monkeypatch, tmp_path: P
 
     def fake_setup(_config):
         call_log.append("setup")
-        return object()
+        return _fake_setup()
 
     def fake_alg_mc(*_a, **_kw):
         class _S:
@@ -287,7 +299,7 @@ def test_run_calibration_skips_prepare_when_staging_none(monkeypatch, tmp_path: 
         lambda self: None,
     )
     monkeypatch.setattr(
-        "pwa_calibration.runner.SpotPySetup", lambda _c: object()
+        "pwa_calibration.runner.SpotPySetup", lambda _c: _fake_setup()
     )
     monkeypatch.setattr("pwa_calibration.runner.patch_rope_get_best_runs", lambda: True)
 
@@ -393,7 +405,7 @@ def _install_calibration_stubs(monkeypatch, algo_name: str) -> dict:
         "pwa_calibration.setup.CalibrationConfig.validate_inputs_exist",
         lambda self: None,
     )
-    monkeypatch.setattr("pwa_calibration.runner.SpotPySetup", lambda _c: object())
+    monkeypatch.setattr("pwa_calibration.runner.SpotPySetup", lambda _c: _fake_setup())
     monkeypatch.setattr(
         "pwa_calibration.runner.patch_rope_get_best_runs", lambda: True
     )
@@ -485,3 +497,127 @@ def test_cli_rejects_unknown_algorithm(tmp_path: Path):
         parser.parse_args(
             ["x", "--model-name", "m", "--calib-dir", str(tmp_path), "--algorithm", "bogus"]
         )
+
+
+# ---------------------------------------------------------------------------
+# Progress bar (rank-gated)
+# ---------------------------------------------------------------------------
+
+
+def _install_tqdm_recorder(monkeypatch) -> dict:
+    """Replace tqdm.auto.tqdm with a recorder that captures construction
+    kwargs and tracks .update / .close calls. Returns the rec dict.
+    """
+    rec: dict = {"ctor_kwargs": None, "updates": [], "closed": False, "instances": 0}
+
+    class _RecorderBar:
+        def __init__(self, **kwargs):
+            rec["ctor_kwargs"] = kwargs
+            rec["instances"] += 1
+
+        def update(self, n=1):
+            rec["updates"].append(n)
+
+        def close(self):
+            rec["closed"] = True
+
+    monkeypatch.setattr("tqdm.auto.tqdm", _RecorderBar)
+    return rec
+
+
+def test_run_calibration_creates_progress_bar_on_rank_0(monkeypatch, tmp_path: Path):
+    """Rank 0 owns the user-facing progress bar — verify it is
+    constructed with the requested rep count, attached to the setup,
+    and closed in the finally block after sampling."""
+    rec = _install_tqdm_recorder(monkeypatch)
+
+    captured_setup = {"value": None}
+
+    def fake_setup_factory(_config):
+        s = _fake_setup(rank=0)
+        captured_setup["value"] = s
+        return s
+
+    monkeypatch.setattr("pwa_calibration.runner.SpotPySetup", fake_setup_factory)
+    monkeypatch.setattr(
+        "pwa_calibration.setup.CalibrationConfig.validate_inputs_exist",
+        lambda self: None,
+    )
+    monkeypatch.setattr("pwa_calibration.runner.patch_rope_get_best_runs", lambda: True)
+
+    class _Sampler:
+        def sample(self, *_a, **_kw):
+            pass
+
+    monkeypatch.setattr("spotpy.algorithms.mc", lambda *_a, **_kw: _Sampler())
+
+    cfg = CalibrationConfig(model_name="grassmere", calib_dir=tmp_path, repetitions=7)
+    runner.run_calibration(cfg, db_suffix="x")
+
+    assert rec["instances"] == 1
+    assert rec["ctor_kwargs"]["total"] == 7
+    assert rec["ctor_kwargs"]["desc"] == "Calibrating grassmere"
+    # setup.progress_bar should have been wired so simulation() can tick it
+    assert captured_setup["value"].progress_bar is not None
+    # Bar must be closed even on successful completion
+    assert rec["closed"] is True
+
+
+def test_run_calibration_skips_progress_bar_on_non_zero_rank(
+    monkeypatch, tmp_path: Path,
+):
+    """MPI worker ranks (rank > 0) must not construct a bar — multiple
+    ranks fighting for stdout would render an unreadable mess. Per-rank
+    log lines carry the progress signal for non-master ranks."""
+    rec = _install_tqdm_recorder(monkeypatch)
+
+    monkeypatch.setattr(
+        "pwa_calibration.runner.SpotPySetup", lambda _c: _fake_setup(rank=1)
+    )
+    monkeypatch.setattr(
+        "pwa_calibration.setup.CalibrationConfig.validate_inputs_exist",
+        lambda self: None,
+    )
+    monkeypatch.setattr("pwa_calibration.runner.patch_rope_get_best_runs", lambda: True)
+
+    class _Sampler:
+        def sample(self, *_a, **_kw):
+            pass
+
+    monkeypatch.setattr("spotpy.algorithms.mc", lambda *_a, **_kw: _Sampler())
+
+    cfg = CalibrationConfig(model_name="grassmere", calib_dir=tmp_path, repetitions=5)
+    runner.run_calibration(cfg, db_suffix="x")
+
+    # tqdm must NOT have been constructed at all on rank 1
+    assert rec["instances"] == 0
+    assert rec["closed"] is False
+
+
+def test_run_calibration_closes_progress_bar_even_if_sample_raises(
+    monkeypatch, tmp_path: Path,
+):
+    """A sampler exception must not leave the tqdm bar dangling — it'd
+    sit half-rendered in the terminal until the process exits. The
+    finally clause owns the close call."""
+    rec = _install_tqdm_recorder(monkeypatch)
+
+    monkeypatch.setattr(
+        "pwa_calibration.runner.SpotPySetup", lambda _c: _fake_setup(rank=0)
+    )
+    monkeypatch.setattr(
+        "pwa_calibration.setup.CalibrationConfig.validate_inputs_exist",
+        lambda self: None,
+    )
+    monkeypatch.setattr("pwa_calibration.runner.patch_rope_get_best_runs", lambda: True)
+
+    class _BadSampler:
+        def sample(self, *_a, **_kw):
+            raise RuntimeError("sampler exploded")
+
+    monkeypatch.setattr("spotpy.algorithms.mc", lambda *_a, **_kw: _BadSampler())
+
+    cfg = CalibrationConfig(model_name="grassmere", calib_dir=tmp_path, repetitions=3)
+    with pytest.raises(RuntimeError, match="sampler exploded"):
+        runner.run_calibration(cfg, db_suffix="x")
+    assert rec["closed"] is True
