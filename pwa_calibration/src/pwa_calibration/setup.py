@@ -545,14 +545,32 @@ def build_param_distributions(config: CalibrationConfig) -> tuple[list, str]:
 # ---------------------------------------------------------------------------
 
 
+# Top-level subdirectories of calib_dir that are NOT staged into each MPI
+# worker. ``output/`` is Raven's per-iteration scratch directory; every
+# worker regenerates it on its first iteration, so copying the stale
+# contents is both pointless and unsafe — if a prior Raven run was killed
+# mid-write, the file is in an inconsistent state and robust_copy will
+# fail with "Checksum mismatch ... after 3 attempts" when source bytes
+# change between the copy and the verify reads.
+_WORKER_STAGE_EXCLUDE_DIRS = frozenset({"output"})
+
+
 def _stage_worker_directory(source: Path, destination: Path) -> None:
     """Copy *source* tree into *destination* using ``robust_copy`` for files.
 
     Mirrors the original two-level loop but uses pathlib throughout and
-    propagates copy failures via ``IOError`` (the original swallowed them).
+    propagates copy failures via ``IOError`` (the original swallowed
+    them). Excludes scratch directories listed in
+    :data:`_WORKER_STAGE_EXCLUDE_DIRS` — currently just ``output/``.
+    The worker's own empty ``output/`` is created here so Raven can
+    write into it on the first iteration without depending on Raven's
+    own directory-creation behaviour.
     """
     destination.mkdir(parents=True, exist_ok=True)
     for entry in source.iterdir():
+        if entry.is_dir() and entry.name in _WORKER_STAGE_EXCLUDE_DIRS:
+            logger.debug("Skipping %s during worker staging (scratch dir)", entry)
+            continue
         dest_entry = destination / entry.name
         if entry.is_dir():
             dest_entry.mkdir(exist_ok=True)
@@ -564,6 +582,9 @@ def _stage_worker_directory(source: Path, destination: Path) -> None:
                     robust_copy(sub, sub_dest)
         else:
             robust_copy(entry, dest_entry)
+    # Ensure the worker has a fresh, empty output/ for Raven to write into.
+    # Doing it here keeps the call site in SpotPySetup.__init__ a single line.
+    (destination / "output").mkdir(exist_ok=True)
 
 
 def _resolve_mpi_rank() -> int:

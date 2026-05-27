@@ -28,6 +28,7 @@ from pwa_calibration.setup import (
     _adj_path_from_template,
     _find_nc_template,
     _round_sig,
+    _stage_worker_directory,
     build_param_distributions,
     calculate_checksum,
     load_calibration_inputs,
@@ -585,3 +586,78 @@ def test_to_yaml_creates_parent_dir(tmp_path: Path):
     out = tmp_path / "deeply" / "nested" / "calibration.yml"
     cfg.to_yaml(out)
     assert out.is_file()
+
+
+# ---------------------------------------------------------------------------
+# _stage_worker_directory
+# ---------------------------------------------------------------------------
+
+
+def _populate_calib_dir(root: Path) -> None:
+    """Build a realistic calib_dir layout: input/, templates/, output/,
+    a few top-level .rv* files and a Raven binary."""
+    (root / "input").mkdir(parents=True)
+    (root / "input" / "HRU_areas.csv").write_text("HRU,AREA\n101,1.0\n")
+    (root / "templates").mkdir()
+    (root / "templates" / "model.rvh.tpl").write_text(":SubBasins\n")
+    (root / "output").mkdir()
+    (root / "output" / "Hydrographs.csv").write_text("date,sim\n2010-01-01,1.5\n")
+    (root / "output" / "Diagnostics.csv").write_text("name,value\nNSE,0.5\n")
+    (root / "model.rvi").write_text(":StartDate 2010-01-01\n")
+    (root / "model.rvc").write_text(":InitialConditions\n")
+    (root / "Raven.exe").write_text("binary")
+
+
+def test_stage_worker_directory_skips_output_dir(tmp_path: Path):
+    """Output/ is Raven's per-iteration scratch directory. Staging it
+    is the root cause of the IISD MPI failure: a Hydrographs.csv from a
+    prior killed Raven run is in an inconsistent state and trips
+    robust_copy's checksum verification. Excluding it is the fix."""
+    source = tmp_path / "calib"
+    dest = tmp_path / "core0"
+    _populate_calib_dir(source)
+
+    _stage_worker_directory(source, dest)
+
+    # output/ exists in dest — but EMPTY. The pre-existing stale files
+    # from source/output/ were not carried over.
+    assert (dest / "output").is_dir()
+    assert list((dest / "output").iterdir()) == []
+    # The non-scratch content was staged normally.
+    assert (dest / "input" / "HRU_areas.csv").is_file()
+    assert (dest / "templates" / "model.rvh.tpl").is_file()
+    assert (dest / "model.rvi").is_file()
+    assert (dest / "Raven.exe").is_file()
+
+
+def test_stage_worker_directory_creates_output_when_source_has_none(
+    tmp_path: Path,
+):
+    """A freshly-prepared calib_dir might not have output/ yet — the
+    worker still needs an empty one to exist so Raven's -o ./output/
+    invocation doesn't fail on a missing directory."""
+    source = tmp_path / "calib"
+    dest = tmp_path / "core0"
+    source.mkdir()
+    (source / "model.rvi").write_text("")  # at least one file so the loop runs
+
+    _stage_worker_directory(source, dest)
+
+    assert (dest / "output").is_dir()
+    assert list((dest / "output").iterdir()) == []
+
+
+def test_stage_worker_directory_doesnt_inherit_stale_outputs(tmp_path: Path):
+    """Regression: a half-written Hydrographs.csv left over from a
+    killed Raven process in the source must not propagate into a fresh
+    worker directory — otherwise robust_copy would race against a
+    Windows file lock or partial write and fail with the exact
+    'Checksum mismatch ... after 3 attempts' error Thomas hit."""
+    source = tmp_path / "calib"
+    dest = tmp_path / "core0"
+    _populate_calib_dir(source)
+
+    _stage_worker_directory(source, dest)
+
+    assert not (dest / "output" / "Hydrographs.csv").exists()
+    assert not (dest / "output" / "Diagnostics.csv").exists()
