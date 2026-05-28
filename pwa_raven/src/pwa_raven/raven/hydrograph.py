@@ -10,6 +10,13 @@ Behavioural improvements over the original:
     ``ValueError`` with a clear message when no matching column is
     found. The original left the return variable unassigned and
     crashed with ``UnboundLocalError``.
+  - ``read_sim()`` / ``read_obs()`` take a ``years`` array instead of a
+    ``(start_yr, end_yr)`` range, matching the train/test-split logic
+    that builds non-contiguous year sets in pwa_calibration.
+  - ``read_sim()`` / ``read_obs()`` accept ``resolution='d'`` (daily,
+    default) or ``resolution='h'`` (hourly, with noon interpolation
+    for observations). The result is always indexed by ``date_time``
+    so callers can join sim against obs by date directly.
   - ``.replace('\\\\', '/')`` path workarounds → ``pathlib.Path``.
   - ``plot_timeseries`` uses lazy matplotlib import.
 """
@@ -18,10 +25,24 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import Iterable
 
+import numpy as np
 import pandas as pd
 
 logger = logging.getLogger(__name__)
+
+
+def _as_year_array(years: Iterable[int] | np.ndarray) -> np.ndarray:
+    """Coerce ``years`` to a 1-D ``int`` numpy array.
+
+    Accepts list, tuple, range, or ndarray; rejects empty input early so
+    the caller sees a clear error instead of an empty filter downstream.
+    """
+    arr = np.asarray(list(years), dtype=int)
+    if arr.size == 0:
+        raise ValueError("`years` is empty; pass at least one year.")
+    return arr
 
 
 def read_rv_diag(
@@ -116,13 +137,17 @@ class RavenHydrograph:
         return df
 
     def _filter_eval(
-        self, start_yr: int, end_yr: int, spring_only: bool, refresh: bool,
+        self,
+        years: Iterable[int] | np.ndarray,
+        spring_only: bool,
+        refresh: bool,
     ) -> pd.DataFrame:
-        """Filter hydrograph data to evaluation period."""
+        """Filter hydrograph data to the supplied evaluation years."""
         if refresh:
             self.data = self._read_hydrograph()
 
-        filtered = self.data.loc[self.data["date_time"].dt.year.between(start_yr, end_yr)]
+        year_arr = _as_year_array(years)
+        filtered = self.data.loc[self.data["date_time"].dt.year.isin(year_arr)]
         if spring_only:
             filtered = filtered.loc[filtered["date_time"].dt.month.lt(6)]
         return filtered
@@ -130,84 +155,127 @@ class RavenHydrograph:
     def read_sim(
         self,
         subbasin_id: str,
-        start_yr: int,
-        end_yr: int,
+        years: Iterable[int] | np.ndarray,
         spring_only: bool = True,
+        resolution: str = "d",
         refresh: bool = False,
     ) -> pd.Series:
         """Extract simulated discharge for a subbasin.
 
+        ``resolution='d'`` returns a daily-mean series indexed by date.
+        ``resolution='h'`` returns the raw hourly series with the
+        ``date_time`` index intact.
+
         Raises
         ------
         ValueError
-            If no column matches *subbasin_id*. The original raised
-            ``UnboundLocalError`` instead, which obscured the real problem.
+            If no column matches *subbasin_id*, or *resolution* is not
+            in ``{"d", "h"}``. The original raised ``UnboundLocalError``
+            on a missing column, which obscured the real problem.
         """
-        self.eval = self._filter_eval(start_yr, end_yr, spring_only, refresh)
+        if resolution not in ("d", "h"):
+            raise ValueError(
+                f"Unsupported resolution {resolution!r}. Use 'd' (daily) or 'h' (hourly)."
+            )
+        self.eval = self._filter_eval(years, spring_only, refresh)
 
+        sim_col: str | None = None
         for col in self.eval.columns:
             if subbasin_id in col.lower() and "observed" not in col.lower():
-                return self.eval[col]
+                sim_col = col
+                break
 
-        raise ValueError(
-            f"No simulated column found for subbasin '{subbasin_id}'. "
-            f"Available columns: {list(self.eval.columns)}"
-        )
+        if sim_col is None:
+            raise ValueError(
+                f"No simulated column found for subbasin '{subbasin_id}'. "
+                f"Available columns: {list(self.eval.columns)}"
+            )
+
+        simulated = pd.Series(self.eval[sim_col].to_numpy(), copy=True)
+        simulated.index = pd.DatetimeIndex(self.eval["date_time"])
+        if resolution == "d":
+            simulated = simulated.resample("D").mean()
+        return simulated
 
     def read_obs(
         self,
-        start_yr: int,
-        end_yr: int,
+        years: Iterable[int] | np.ndarray,
         spring_only: bool = True,
+        resolution: str = "d",
         refresh: bool = False,
     ) -> pd.Series:
-        """Extract observed discharge with daily interpolation at noon.
+        """Extract observed discharge.
+
+        ``resolution='d'`` resamples the observed series to daily means.
+        ``resolution='h'`` keeps hourly resolution and interpolates
+        linearly between the daily noon observations (the original
+        behaviour for hourly evaluation).
 
         Raises
         ------
         ValueError
-            If no ``observed`` column is found. The original raised
-            ``UnboundLocalError`` instead.
+            If no ``observed`` column is found, or *resolution* is not
+            in ``{"d", "h"}``. The original raised ``UnboundLocalError``
+            on a missing column.
         """
-        self.eval = self._filter_eval(start_yr, end_yr, spring_only, refresh)
+        if resolution not in ("d", "h"):
+            raise ValueError(
+                f"Unsupported resolution {resolution!r}. Use 'd' (daily) or 'h' (hourly)."
+            )
+        self.eval = self._filter_eval(years, spring_only, refresh)
 
-        mid_day = 12
-        noon_index = []
-        while mid_day < 18 and len(noon_index) == 0:
-            noon_index = self.eval.index[self.eval["date_time"].dt.hour == mid_day]
-            if len(noon_index) > 0:
-                break
-            mid_day += 1
-            logger.warning("No data at %dh, trying %dh", mid_day - 1, mid_day)
+        noon_index = pd.Index([])
+        noon_interval = 0
+        if resolution == "h":
+            mid_day = 12
+            while mid_day < 18 and len(noon_index) == 0:
+                noon_index = self.eval.index[self.eval["date_time"].dt.hour == mid_day]
+                if len(noon_index) > 0:
+                    break
+                mid_day += 1
+                logger.warning("No data at %dh, trying %dh", mid_day - 1, mid_day)
+            if len(noon_index) < 2:
+                raise ValueError("Insufficient noon data for interpolation interval")
+            noon_interval = int(noon_index[1] - noon_index[0])
 
-        if len(noon_index) < 2:
-            raise ValueError("Insufficient noon data for interpolation interval")
-
-        noon_interval = int(noon_index[1] - noon_index[0])
-
+        obs_col: str | None = None
         for col in self.eval.columns:
             if "observed" in col.lower():
-                observed = self.eval[col]
-                observed = observed.where(observed.index.isin(noon_index))
-                observed = observed.interpolate(
-                    method="linear", limit_direction="both",
-                    limit=noon_interval, limit_area="inside",
-                )
-                return observed
+                obs_col = col
+                break
 
-        raise ValueError(
-            f"No 'observed' column found in hydrograph data. "
-            f"Available columns: {list(self.eval.columns)}"
+        if obs_col is None:
+            raise ValueError(
+                f"No 'observed' column found in hydrograph data. "
+                f"Available columns: {list(self.eval.columns)}"
+            )
+
+        # Keep the integer row index for the `.where(... isin(noon_index))`
+        # filter; the noon_index entries are positional, not datetimes.
+        observed: pd.Series = pd.Series(
+            self.eval[obs_col].to_numpy(), index=self.eval.index, copy=True
         )
+        if resolution == "h":
+            masked: pd.Series = observed.where(observed.index.isin(noon_index))
+            observed = masked.interpolate(
+                method="linear", limit_direction="both",
+                limit=noon_interval, limit_area="inside",
+            )  # type: ignore[assignment]
+        observed.index = pd.DatetimeIndex(self.eval["date_time"])
+        if resolution == "d":
+            observed = observed.resample("D").mean()
+        return observed
 
     def read_runoff(
         self,
-        start_yr: int,
-        end_yr: int,
+        years: Iterable[int] | np.ndarray,
         spring_only: bool = True,
         refresh: bool = False,
     ) -> pd.Series:
         """Extract total runoff (precip column) from the hydrograph.
+
+        Returned as-is at hydrograph resolution; callers that need daily
+        means should resample.
 
         Raises
         ------
@@ -215,11 +283,11 @@ class RavenHydrograph:
             If no ``precip`` column is found. The original raised
             ``UnboundLocalError`` instead.
         """
-        self.eval = self._filter_eval(start_yr, end_yr, spring_only, refresh)
+        self.eval = self._filter_eval(years, spring_only, refresh)
 
         for col in self.eval.columns:
             if "precip" in col.lower():
-                return self.eval[col]
+                return pd.Series(self.eval[col].to_numpy(), index=self.eval.index, copy=True)
 
         raise ValueError(
             f"No 'precip' column found in hydrograph data. "
