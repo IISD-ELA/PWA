@@ -18,7 +18,12 @@ import pytest
 
 from pwa_raven.raven.files import RavenFile
 from pwa_raven.raven.hydrograph import RavenHydrograph, index_to_date
-from pwa_raven.raven.runner import _find_raven_binary, run_raven
+from pwa_raven.raven.runner import (
+    RavenExecutionError,
+    _find_raven_binary,
+    _raven_error_lines,
+    run_raven,
+)
 
 
 # ============ RavenFile — template substitution ============
@@ -430,3 +435,131 @@ def test_run_raven_auto_discovers_binary_in_data_dir(tmp_path: Path) -> None:
 
     cmd = mock_run.call_args.args[0]
     assert cmd[0] == str(binary.resolve())
+
+
+# --- Raven_errors.txt detection (silent exit-0 failures) ------------------
+
+
+def _write_raven_errors(data_dir: Path, output_dir: str, body: str) -> Path:
+    """Create <data_dir>/<output_dir>/Raven_errors.txt with *body*."""
+    out = data_dir / output_dir
+    out.mkdir(parents=True, exist_ok=True)
+    errors_file = out / "Raven_errors.txt"
+    errors_file.write_text(body)
+    return errors_file
+
+
+def test_raven_error_lines_returns_only_error_prefixed(tmp_path: Path) -> None:
+    """Advisories are ignored; only ERROR lines come back, stripped."""
+    out = tmp_path / "output"
+    out.mkdir()
+    (out / "Raven_errors.txt").write_text(
+        " Raven v4.1\n"
+        "ADVISORY : shortwave radiation is SW_RAD_NONE\n"
+        "ERROR    : CForcingGrid::Initialize: gridded forcing data not available\n"
+    )
+    lines = _raven_error_lines(out)
+    assert lines == [
+        "ERROR    : CForcingGrid::Initialize: gridded forcing data not available"
+    ]
+
+
+def test_raven_error_lines_empty_when_file_absent(tmp_path: Path) -> None:
+    assert _raven_error_lines(tmp_path / "output") == []
+
+
+def test_run_raven_raises_on_error_in_errors_file(tmp_path: Path) -> None:
+    """Raven exits 0 but writes an ERROR → run_raven must raise
+    RavenExecutionError quoting that error, NOT return silently and let
+    the empty hydrograph cascade into a confusing downstream crash."""
+    data_dir = tmp_path / "calib"
+    binary = data_dir / "Raven"
+    data_dir.mkdir()
+    binary.write_text("")
+    _write_raven_errors(
+        data_dir, "output",
+        "ADVISORY : something benign\n"
+        "ERROR    : CForcingGrid::Initialize: gridded forcing data not available "
+        "at end of model simulation\n",
+    )
+
+    with patch("subprocess.run") as mock_run, patch("shutil.which", return_value=None):
+        mock_run.return_value.stdout = ""
+        mock_run.return_value.stderr = ""
+        mock_run.return_value.returncode = 0
+        with pytest.raises(RavenExecutionError, match="gridded forcing data not available"):
+            run_raven("model", data_dir=data_dir)
+
+
+def test_run_raven_error_includes_forcing_hint_for_forcing_errors(
+    tmp_path: Path,
+) -> None:
+    """A forcing-window error gets the actionable forcing_margin_hours
+    hint pointing at the Step 2 fix."""
+    data_dir = tmp_path / "calib"
+    (data_dir).mkdir()
+    (data_dir / "Raven").write_text("")
+    _write_raven_errors(
+        data_dir, "output",
+        "ERROR    : CForcingGrid::Initialize: gridded forcing data not available\n",
+    )
+    with patch("subprocess.run") as mock_run, patch("shutil.which", return_value=None):
+        mock_run.return_value.stdout = ""
+        mock_run.return_value.stderr = ""
+        mock_run.return_value.returncode = 0
+        with pytest.raises(RavenExecutionError, match="forcing_margin_hours"):
+            run_raven("model", data_dir=data_dir)
+
+
+def test_run_raven_no_forcing_hint_for_unrelated_errors(tmp_path: Path) -> None:
+    """A non-forcing error still raises, but without the misleading
+    forcing_margin_hours hint."""
+    data_dir = tmp_path / "calib"
+    data_dir.mkdir()
+    (data_dir / "Raven").write_text("")
+    _write_raven_errors(
+        data_dir, "output",
+        "ERROR    : CModel::Initialize: soil class AQUIFER has no porosity\n",
+    )
+    with patch("subprocess.run") as mock_run, patch("shutil.which", return_value=None):
+        mock_run.return_value.stdout = ""
+        mock_run.return_value.stderr = ""
+        mock_run.return_value.returncode = 0
+        with pytest.raises(RavenExecutionError) as excinfo:
+            run_raven("model", data_dir=data_dir)
+    assert "porosity" in str(excinfo.value)
+    assert "forcing_margin_hours" not in str(excinfo.value)
+
+
+def test_run_raven_succeeds_with_advisory_only_errors_file(tmp_path: Path) -> None:
+    """Advisory-only Raven_errors.txt is a normal successful run — must
+    NOT raise. This is the common case (Raven emits advisories on every
+    run); a false positive here would block every calibration."""
+    data_dir = tmp_path / "calib"
+    data_dir.mkdir()
+    (data_dir / "Raven").write_text("")
+    _write_raven_errors(
+        data_dir, "output",
+        " Raven v4.1\n"
+        "ADVISORY : shortwave radiation method is SW_RAD_NONE\n"
+        "ADVISORY : RAINSNOW_TEMP autogenerated with value 0.15\n",
+    )
+    with patch("subprocess.run") as mock_run, patch("shutil.which", return_value=None):
+        mock_run.return_value.stdout = ""
+        mock_run.return_value.stderr = ""
+        mock_run.return_value.returncode = 0
+        # Should not raise.
+        run_raven("model", data_dir=data_dir)
+
+
+def test_run_raven_succeeds_when_no_errors_file(tmp_path: Path) -> None:
+    """No Raven_errors.txt at all → treat as success (don't raise)."""
+    data_dir = tmp_path / "calib"
+    data_dir.mkdir()
+    (data_dir / "Raven").write_text("")
+    (data_dir / "output").mkdir()
+    with patch("subprocess.run") as mock_run, patch("shutil.which", return_value=None):
+        mock_run.return_value.stdout = ""
+        mock_run.return_value.stderr = ""
+        mock_run.return_value.returncode = 0
+        run_raven("model", data_dir=data_dir)

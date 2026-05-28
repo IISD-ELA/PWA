@@ -10,6 +10,9 @@ Behavioural improvements over the original:
   - ``subprocess.run`` uses ``check=True`` so a non-zero exit surfaces
     immediately rather than letting downstream steps process a missing
     output file.
+  - ``Raven_errors.txt`` is inspected after every run: Raven can exit 0
+    while reporting an ERROR and writing only a header-only hydrograph,
+    so a zero return code alone isn't proof of success.
   - ``os.chdir`` already had try/finally in the original — preserved.
 """
 
@@ -26,6 +29,35 @@ logger = logging.getLogger(__name__)
 
 
 _BINARY_NAMES = ("Raven", "Raven.exe")
+
+_RAVEN_ERRORS_FILENAME = "Raven_errors.txt"
+
+
+class RavenExecutionError(RuntimeError):
+    """Raised when Raven reports an error in ``Raven_errors.txt``.
+
+    Raven can exit with code 0 while still writing an ``ERROR`` line to
+    ``Raven_errors.txt`` and producing an empty (header-only)
+    ``Hydrographs.csv``. Without this check that failure stays silent
+    and surfaces much later as a confusing downstream error (e.g.
+    "Simulation and observation arrays contain no overlapping non-null
+    values" in the objective function), far from the real cause. This
+    exception puts Raven's own error message in front of the user.
+    """
+
+
+def _raven_error_lines(output_dir: Path) -> list[str]:
+    """Return the ``ERROR``-prefixed lines from ``Raven_errors.txt``.
+
+    Returns an empty list if the file is absent or contains only
+    advisories. Raven writes one line per message, prefixed with
+    ``ERROR`` or ``ADVISORY``; we surface only the former.
+    """
+    errors_file = output_dir / _RAVEN_ERRORS_FILENAME
+    if not errors_file.is_file():
+        return []
+    lines = errors_file.read_text(errors="replace").splitlines()
+    return [ln.strip() for ln in lines if ln.lstrip().startswith("ERROR")]
 
 
 def _find_raven_binary(
@@ -135,6 +167,10 @@ def run_raven(
         search, PATH) yields the binary.
     subprocess.CalledProcessError
         If Raven exits with a non-zero return code.
+    RavenExecutionError
+        If Raven exits 0 but writes an ``ERROR`` line to
+        ``Raven_errors.txt`` (a silent failure that would otherwise
+        cascade into a confusing downstream error).
     """
     data_dir = Path(data_dir)
     resolved_binary = _find_raven_binary(
@@ -151,6 +187,30 @@ def run_raven(
         logger.info("Raven stdout:\n%s", result.stdout)
         if result.stderr:
             logger.warning("Raven stderr:\n%s", result.stderr)
+
+        # Raven can exit 0 while reporting an ERROR (and writing only a
+        # header-only hydrograph). check=True above misses that case;
+        # inspect Raven's own error log and fail loudly with its message.
+        error_lines = _raven_error_lines(Path(output_dir))
+        if error_lines:
+            errors_path = data_dir / output_dir / _RAVEN_ERRORS_FILENAME
+            quoted = "\n  ".join(error_lines)
+            msg = (
+                f"Raven exited 0 but reported {len(error_lines)} error(s) in "
+                f"{errors_path}:\n  {quoted}"
+            )
+            if any("forcing" in ln.lower() for ln in error_lines):
+                msg += (
+                    "\n\nA 'gridded forcing data not available' error means "
+                    "the model simulation window runs past the forcing data. "
+                    "This happens when calibration time-shifts the forcing "
+                    "via runoff_offset and the shifted forcing ends before "
+                    "the model does. Re-run Step 2 so the model end date "
+                    "picks up forcing_margin_hours (default 30 days of "
+                    "headroom) — see RavenInputsConfig."
+                )
+            raise RavenExecutionError(msg)
+
         return result
     finally:
         os.chdir(prev_cwd)
