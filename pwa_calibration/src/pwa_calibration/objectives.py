@@ -8,11 +8,16 @@ They drop NaN observations pairwise so callers don't have to pre-clean.
 The original notebook code wrapped every result in ``pd.Series(...)``
 before returning to SPOTPY; SPOTPY's API only requires a numeric scalar,
 so callers wanting a Series should wrap the result themselves.
+
+This module also hosts the event-based timing-realignment helpers
+(``center_of_mass_date``, ``shift_obs_by_yearly_lag``) added in upstream
+commit 230493c — they sit alongside the objectives because the
+realignment runs immediately before objective evaluation.
 """
 
 from __future__ import annotations
 
-from typing import Tuple
+from typing import Iterable, Tuple
 
 import numpy as np
 import pandas as pd
@@ -127,3 +132,78 @@ def evaluate(name: str, sim, obs) -> float:
             f"Choose from {sorted(OBJECTIVES)}."
         ) from exc
     return fn(sim, obs)
+
+
+# ---------------------------------------------------------------------------
+# Event-based timing realignment (upstream commit 230493c)
+# ---------------------------------------------------------------------------
+
+
+def center_of_mass_date(series: pd.Series, year: int) -> pd.Timestamp:
+    """Return the date that splits the year's cumulative flow at 50%.
+
+    Used to estimate the timing of each year's spring freshet so the
+    observed and simulated hydrographs can be aligned year-by-year
+    before computing an objective. NaN values are ignored.
+
+    Raises
+    ------
+    ValueError
+        If the supplied series has no values for *year*, or the year's
+        total is zero (the median-mass split is undefined).
+    """
+    if not isinstance(series.index, pd.DatetimeIndex):
+        raise TypeError("series must have a DatetimeIndex")
+    annual = series[series.index.year == year]
+    if annual.empty:
+        raise ValueError(f"No data for year {year}.")
+    values = annual.to_numpy(dtype=float)
+    total = float(np.nansum(values))
+    if total <= 0.0:
+        raise ValueError(f"Year {year} total mass is non-positive; cannot split.")
+    # Replace NaNs with 0 so cumsum still progresses through the year.
+    safe = np.where(np.isnan(values), 0.0, values)
+    cumulative = np.cumsum(safe)
+    half = total / 2.0
+    com_idx = int(np.searchsorted(cumulative, half))
+    com_idx = min(com_idx, len(annual) - 1)
+    return annual.index[com_idx]
+
+
+def shift_obs_by_yearly_lag(
+    obs: pd.Series,
+    sim: pd.Series,
+    years: Iterable[int],
+) -> pd.Series:
+    """Realign each year's observed series by its lag against simulation.
+
+    Lag is ``com(obs) - com(sim)`` in days; a positive lag means obs is
+    later than sim, so obs is shifted earlier (``.shift(-lag)``) to
+    line up with sim. The resulting series concatenates each year's
+    shifted slice in input order and inherits the obs index.
+
+    Years for which the lag can't be computed (no data, zero total)
+    are passed through unshifted.
+    """
+    if not isinstance(obs.index, pd.DatetimeIndex):
+        raise TypeError("obs must have a DatetimeIndex")
+    if not isinstance(sim.index, pd.DatetimeIndex):
+        raise TypeError("sim must have a DatetimeIndex")
+
+    pieces: list[pd.Series] = []
+    for year in years:
+        obs_year = obs[obs.index.year == year]
+        if obs_year.empty:
+            continue
+        try:
+            com_obs = center_of_mass_date(obs, int(year))
+            com_sim = center_of_mass_date(sim, int(year))
+        except ValueError:
+            pieces.append(obs_year)
+            continue
+        lag_days = (com_obs - com_sim).days
+        pieces.append(obs_year.shift(-lag_days))
+
+    if not pieces:
+        return pd.Series([], index=pd.DatetimeIndex([]), dtype=float)
+    return pd.concat(pieces)
