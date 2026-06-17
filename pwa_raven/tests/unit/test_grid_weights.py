@@ -234,3 +234,118 @@ def test_generate_grid_weights_uses_subset_count_not_full_grid(tmp_path):
     content = out.read_text()
     assert ":NumberGridCells  2" in content      # len(hybas_map) — the subset
     assert ":NumberGridCells  4" not in content  # NOT len(phydap) — the full grid
+
+
+# ---------------------------------------------------------------------------
+# generate_grid_weights — Lake_Cat >= 2 catchments must be excluded
+# ---------------------------------------------------------------------------
+
+def _subbasin_with_lake_cat(
+    point_xy: tuple[float, float], sub_id: int, lake_cat: int,
+) -> dict:
+    base = _subbasin_at(point_xy, sub_id)
+    base["Lake_Cat"] = lake_cat
+    return base
+
+
+def test_generate_grid_weights_excludes_lake_catchments(tmp_path):
+    """Non-contributing lake catchments (Lake_Cat >= 2) don't route
+    water in Raven; including them in GridWeights.txt forces Raven to
+    read forcing for cells Step 2 later drops, causing forcing/coverage
+    mismatches. Ports master commit af102c0 ("Removed lake catchments
+    from gridweights file")."""
+    phydap = gpd.GeoDataFrame(
+        {"HYBAS_ID": [1001, 1003]},
+        geometry=[
+            Polygon([(0, 0), (1, 0), (1, 1), (0, 1)]),  # 1001
+            Polygon([(1, 0), (2, 0), (2, 1), (1, 1)]),  # 1003
+        ],
+        crs="EPSG:4326",
+    )
+    phydap_path = tmp_path / "phydap.shp"
+    phydap.to_file(phydap_path)
+
+    hybas_map_path = tmp_path / "hybas_map.csv"
+    pd.DataFrame({"hybas_id": [1001, 1003], "grid_idx": [0, 1]}).to_csv(
+        hybas_map_path, index=False
+    )
+
+    # Three subbasins: SubId 1 contributes (Lake_Cat=0), 2 contributes
+    # (Lake_Cat=1, which means a *contributing* lake reach), 3 is a
+    # non-contributing lake catchment (Lake_Cat=2 — must be filtered).
+    subbasins = gpd.GeoDataFrame(
+        [
+            _subbasin_with_lake_cat((0.5, 0.5), 1, lake_cat=0),
+            _subbasin_with_lake_cat((1.2, 0.5), 2, lake_cat=1),
+            _subbasin_with_lake_cat((1.7, 0.5), 3, lake_cat=2),
+        ],
+        crs="EPSG:4326",
+    )
+    subbasins_path = tmp_path / "subbasins.shp"
+    subbasins.to_file(subbasins_path)
+
+    out = generate_grid_weights(
+        subbasins_shp=subbasins_path,
+        phydap_shp=phydap_path,
+        hybas_map_csv=hybas_map_path,
+        watershed_name="lake_test",
+        output_path=tmp_path / "GridWeights.txt",
+    )
+    content = out.read_text()
+    # Data lines have the form: "<HRU_ID>  <cell>  <weight>" (right-aligned).
+    # Parse out the leading integer per data row and assert which SubIds
+    # appear. SubId 3 (Lake_Cat=2) must be filtered.
+    hru_ids = []
+    in_data = False
+    for line in content.splitlines():
+        stripped = line.strip()
+        if stripped.startswith(":GridWeights"):
+            in_data = True
+            continue
+        if stripped.startswith(":EndGridWeights"):
+            break
+        if not in_data or not stripped or stripped.startswith(("#", ":")):
+            continue
+        hru_ids.append(int(stripped.split()[0]))
+
+    assert 3 not in hru_ids, "Lake_Cat=2 subbasin leaked into GridWeights"
+    assert sorted(hru_ids) == [1, 2]
+
+
+def test_generate_grid_weights_no_op_when_lake_cat_column_missing(tmp_path):
+    """Watersheds whose subbasin layer doesn't carry a Lake_Cat column
+    must still run. The filter is a no-op when the column is absent."""
+    phydap = gpd.GeoDataFrame(
+        {"HYBAS_ID": [1001]},
+        geometry=[Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])],
+        crs="EPSG:4326",
+    )
+    phydap_path = tmp_path / "phydap.shp"
+    phydap.to_file(phydap_path)
+
+    hybas_map_path = tmp_path / "hybas_map.csv"
+    pd.DataFrame({"hybas_id": [1001], "grid_idx": [0]}).to_csv(
+        hybas_map_path, index=False
+    )
+    # _subbasin_at returns dicts WITHOUT a Lake_Cat column.
+    subbasins = gpd.GeoDataFrame(
+        [_subbasin_at((0.5, 0.5), 1)], crs="EPSG:4326",
+    )
+    subbasins_path = tmp_path / "subbasins.shp"
+    subbasins.to_file(subbasins_path)
+
+    out = generate_grid_weights(
+        subbasins_shp=subbasins_path,
+        phydap_shp=phydap_path,
+        hybas_map_csv=hybas_map_path,
+        watershed_name="no_lake_col",
+        output_path=tmp_path / "GridWeights.txt",
+    )
+    assert out.is_file()
+    # The one subbasin should appear as a data row (right-aligned format).
+    data_rows = [
+        ln for ln in out.read_text().splitlines()
+        if ln.strip() and ln.strip()[0].isdigit()
+    ]
+    assert len(data_rows) == 1
+    assert data_rows[0].split()[0] == "1"
