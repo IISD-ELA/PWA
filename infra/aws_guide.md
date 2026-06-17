@@ -25,10 +25,13 @@
 s3://iisd-ela-pwa-temp-storage/
 
 Can be accessed via browser GUI or using an AWS CLI command like:
-aws s3 sync "cypress/" "s3://iisd-ela-pwa-temp-storage/inputs/" (Access Key issue)
+
+`aws --profile iisd --region ca-central-1 s3 sync "cypress/" "s3://iisd-ela-pwa-temp-storage/inputs/"` 
+
 
 Can be loaded from S3 with
-Aws s3 sync s3://iisd-ela-pwa-temp-storage/ Users/Administrator/code/PWA
+
+`aws --profile iisd --region ca-central-1 s3 sync s3://iisd-ela-pwa-temp-storage/ Users/Administrator/code/PWA`
 
 **Within the EC2 session:**
 For data, view and connect to S3 buckets using : aws s3 ls
