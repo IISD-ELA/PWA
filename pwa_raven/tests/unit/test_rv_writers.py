@@ -36,6 +36,17 @@ def test_write_rvi_basic(tmp_path: Path):
     assert ":EndHydrologicProcesses" in content
 
 
+def test_write_rvi_uses_3h_timestep(tmp_path: Path):
+    """3-hour timestep matches the upstream default (master commit
+    1354657). Hourly (the old refactor default) produced different
+    simulation output and made calibrations non-comparable to runs
+    against current upstream master."""
+    out = write_rvi(tmp_path, watershed_name="grassmere", model_start=MODEL_START, model_end=MODEL_END)
+    content = out.read_text()
+    assert ":TimeStep              03:00:00" in content
+    assert ":TimeStep              01:00:00" not in content
+
+
 def test_write_rvi_strips_spaces_from_filename(tmp_path: Path):
     """Raven file basenames cannot contain whitespace; sanitization handles that."""
     out = write_rvi(tmp_path, watershed_name="grass mere", model_start=MODEL_START, model_end=MODEL_END)

@@ -61,7 +61,7 @@ def write_rvi(
 :StartDate             {start_str :<30} # Model run start time, format in yyyy-mm-dd hh:mm:ss
 :EndDate               {end_str :<30} # Model run end time, format in yyyy-mm-dd hh:mm:ss
 :Method                ORDERED_SERIES                # Numerical method used for simulation
-:TimeStep              01:00:00                      # Expressed in days as a real-valued number (e.g., 1.0 for one day) or using hh:mm:ss format (e.g., 24:00:00 for one hour).
+:TimeStep              03:00:00                      # 3-hour timestep matches the upstream default; halves simulation cost vs hourly without meaningfully degrading daily-flow calibration. Use hh:mm:ss format (e.g., 24:00:00 = 1 day).
 :RunName               {watershed_name:<30}# The name of model run. It will be added as a prefix of model output files.
 
 :CatchmentRoute        ROUTE_TRI_CONVOLUTION         # Catchment routing method, used to convey water from the catchment tributaries and rivulets to the subbasin outlets. DEFAULT ROUTE_DUMP, which instantly 'dumps' all water in the subbasin stream reach.
