@@ -1,0 +1,59 @@
+# Example configuration for the PWA NetCDF processing pipeline
+# (PHyDAP subset + GridWeights + time-offset).
+#
+# Copy to nc_processing.yml and edit, OR generate one interactively:
+#     python -m pwa_raven.init_nc_processing_config nc_processing.yml
+#
+# Then run from the shell:
+#     python -m pwa_raven.run_nc_processing --config nc_processing.yml
+#
+# Or programmatically:
+#     from pwa_raven.nc_processing import NcProcessingConfig, run_nc_processing
+#     run_nc_processing(NcProcessingConfig.from_yaml("nc_processing.yml"))
+
+# ---- Required ----------------------------------------------------------
+
+# Watershed / model name. Used for output filenames.
+watershed_name: grassmere
+
+# Root output directory. Step 1 outputs land at:
+#     {output_dir}/{data_category}/Processed/
+output_dir: ./Data
+
+# Raw PHyDAP NetCDF (gridded forcing data).
+phydap_nc: ./Data/phydap_raw/PHyDAP_RDRS21_hourly_runoff.nc
+
+# PHyDAP grid polygons (one per HYBAS_ID).
+phydap_shapefile: ./Data/phydap_raw/prairie_hydrosheds_true_WGS84.shp
+
+# Watershed subbasins shapefile — Step 0 output, with HYBAS_ID and
+# SubId columns.
+subbasins_shapefile: ./Data/grassmere/HydroConditioning/Processed/CLRH_basins_depression_depths.shp
+
+# ---- Data category -----------------------------------------------------
+
+# One of: Runoff (default), Snowmelt, Rainfall.
+# Determines the output subfolder name and the GridWeights comment.
+data_category: Runoff
+
+# ---- NetCDF variable details ------------------------------------------
+
+# Variable name to extract from the raw PHyDAP NetCDF.
+nc_variable: cropped_runoff
+
+# Units string for the new variable in the subsetted NetCDF.
+nc_var_units: mm/h
+
+# Output filename for the subsetted NetCDF. Set to null to derive
+# automatically as f"{watershed_name}_{data_category.lower()}.nc".
+output_nc_name: null
+
+# ---- Time offset -------------------------------------------------------
+
+# Hours to shift the NetCDF time axis for the *_adj.nc output that
+# Step 2 + the calibration consume. The notebook hardcoded 10.
+time_offset_hours: 10
+
+# Synthetic latitude value for the false 'lat' dimension Raven needs
+# (the prairie watersheds use ~49.43°N).
+lat_value: 49.43

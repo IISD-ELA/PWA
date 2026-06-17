@@ -1,0 +1,102 @@
+# Example configuration for the PWA Raven inputs pipeline
+# (.rv* file generation + calibration templates).
+#
+# Copy to raven_inputs.yml and edit, OR generate one interactively:
+#     python -m pwa_raven.init_raven_inputs_config raven_inputs.yml
+#
+# Then run from the shell:
+#     python -m pwa_raven.run_raven_inputs --config raven_inputs.yml
+#
+# Or programmatically:
+#     from pwa_raven.raven_inputs import RavenInputsConfig, run_raven_inputs
+#     run_raven_inputs(RavenInputsConfig.from_yaml("raven_inputs.yml"))
+
+# ---- Required ----------------------------------------------------------
+
+# Watershed / model name.
+watershed_name: grassmere
+
+# Root output directory. Step 2 outputs land at:
+#     {output_dir}/Raven/Processed/{watershed_name}.rvi (etc.)
+#     {output_dir}/Raven/Processed/templates/...
+#     {output_dir}/Raven/Processed/input/...
+output_dir: ./Data
+
+# Watershed subbasins shapefile — Step 0 output. Must include columns:
+#   BasArea, BkfDepth, BkfWidth, RivLength, RivSlope, MeanElev,
+#   BasAspect, BasSlope, Has_POI, Lake_Cat, DowSubId, Q_Mean,
+#   Deps_Depth, centroid_x, centroid_y, DrainArea, FloodP_n, Ch_n.
+subbasins_shapefile: ./Data/grassmere/HydroConditioning/Processed/CLRH_basins_depression_depths.shp
+
+# Step 1 output — the time-shifted PHyDAP NetCDF.
+phydap_nc: ./Data/grassmere/Runoff/Processed/grassmere_runoff_adj.nc
+
+# WSC streamgauge metadata + daily-discharge CSVs.
+wsc_metadata_csv: ./Data/grassmere/Raven/Raw/metadata_05NF002.csv
+wsc_daily_csv: ./Data/grassmere/Raven/Raw/daily_05NF002.csv
+
+# ---- Hydrological parameters ------------------------------------------
+
+# NRCS TR-55 curve number for time-of-concentration calculation.
+# 63 was the Manning-watershed value from the original notebook;
+# adjust per-watershed.
+curve_number: 63.0
+
+# ---- Simulation window -------------------------------------------------
+
+# User-requested model start/end. Resolved as the intersect with the
+# NetCDF time-axis range and the WSC daily-discharge date range — the
+# tightest window wins.
+user_start: "1990-01-01 00:00:00"
+user_end:   "2019-12-30 00:00:00"
+
+# Hours of forcing-data headroom past the model end date. The resolved
+# model end gets pulled in by this many hours when the NetCDF would
+# otherwise pin it, leaving Step 3 calibration room to time-shift the
+# forcing (the calibrated 'runoff_offset', up to 100h) without running
+# the model off the end of the forcing file.
+#
+# Default 720 = 30 days, ~7× the current 100h offset cap. Set to 0 if
+# you are NOT running Step 3 calibration with runoff_offset enabled —
+# e.g. a forward-only model run, or calibration with --no-phydap-adj.
+forcing_margin_hours: 720.0
+
+# ---- Static .rvp/.rvc parameters --------------------------------------
+
+# Average annual runoff for the global :AvgAnnualRunoff line in .rvp.
+avg_annual_runoff_mm: 75.0
+
+# Initial soil-storage condition for the .rvc.
+initial_soil_storage_mm: 15.0
+
+# ---- Outputs ----------------------------------------------------------
+
+# Generate calibration templates (.rvh.tpl, .rvp.tpl, channel.rvp.tpl)
+# + HRU_areas.csv + tp_tc.csv. Required if you plan to run Step 3
+# calibration with pwa_calibration.
+write_calibration_templates: true
+
+# Compute per-basin aspect ratios → aspect_ratios.csv. Consumed by the
+# SPOTPY calibration setup. Note: see project-review/client-questions.md
+# Q-004 — values from the new (correct) algorithm differ from the
+# legacy notebook output.
+write_aspect_ratios: true
+
+# NetCDF variable name referenced by the .rvt GriddedForcing block.
+forcing_var_name: runoff
+
+# ---- RavenView visualization export -----------------------------------
+
+# Path to the watershed's rivers shapefile (raw CLRH layer, e.g.
+# finalcat_info_riv_v1-0.shp). Step 2 doesn't otherwise consume it —
+# it is only used to write the RavenView GeoJSON pair. Leave unset to
+# skip the RavenView export entirely.
+rivers_shapefile: ./Data/grassmere/Raven/Raw/finalcat_info_riv_v1-0.shp
+
+# When true (default) AND rivers_shapefile is set, run_raven_inputs
+# writes two GeoJSON files into <output_dir>/Raven/RavenView/:
+#   <watershed_name>.json        — subbasins
+#   <watershed_name>Rivers.json  — rivers
+# Upload both at https://raven.uwaterloo.ca/RavenView/RavenView.html
+# to visualize the watershed.
+write_ravenview: true

@@ -1,0 +1,547 @@
+"""Unit tests for pwa_raven.raven_inputs — RavenInputsConfig + run_raven_inputs.
+
+The e2e fixture builds a synthetic subbasins shapefile + nc_processing-
+shaped NetCDF + WSC metadata + WSC daily CSV with enough columns to
+satisfy prepare_basin_attributes and the .rvh writer.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import geopandas as gpd
+import numpy as np
+import pandas as pd
+import pytest
+from netCDF4 import Dataset
+from shapely.geometry import LineString, Polygon
+
+from pwa_raven.raven_inputs import RavenInputsConfig, RavenInputsResult, run_raven_inputs
+
+
+# ---------------------------------------------------------------------------
+# RavenInputsConfig — construction + validation
+# ---------------------------------------------------------------------------
+
+
+def _minimal_config_kwargs(tmp_path: Path) -> dict:
+    return {
+        "watershed_name": "grassmere",
+        "output_dir": tmp_path / "out",
+        "subbasins_shapefile": tmp_path / "subbasins.shp",
+        "phydap_nc": tmp_path / "adj.nc",
+        "wsc_metadata_csv": tmp_path / "metadata.csv",
+        "wsc_daily_csv": tmp_path / "daily.csv",
+    }
+
+
+def test_config_normalizes_paths(tmp_path: Path):
+    cfg = RavenInputsConfig(**{
+        k: str(v) if isinstance(v, Path) else v
+        for k, v in _minimal_config_kwargs(tmp_path).items()
+    })
+    assert isinstance(cfg.output_dir, Path)
+    assert isinstance(cfg.phydap_nc, Path)
+
+
+def test_config_is_frozen(tmp_path: Path):
+    cfg = RavenInputsConfig(**_minimal_config_kwargs(tmp_path))
+    with pytest.raises(Exception):  # FrozenInstanceError
+        cfg.watershed_name = "renamed"  # type: ignore[misc]
+
+
+def test_config_derived_paths(tmp_path: Path):
+    cfg = RavenInputsConfig(**_minimal_config_kwargs(tmp_path))
+    assert cfg.processed_dir == tmp_path / "out" / "Raven" / "Processed"
+    assert cfg.templates_dir == cfg.processed_dir / "templates"
+    assert cfg.input_dir == cfg.processed_dir / "input"
+    assert cfg.rvi_path.name == "grassmere.rvi"
+    assert cfg.channel_rvp_path.name == "channel_properties.rvp"
+
+
+def test_config_safe_name_strips_spaces(tmp_path: Path):
+    cfg = RavenInputsConfig(
+        **{**_minimal_config_kwargs(tmp_path), "watershed_name": "Long Name Here"}
+    )
+    assert cfg.safe_name == "LongNameHere"
+    assert cfg.rvi_path.name == "LongNameHere.rvi"
+
+
+# ---------------------------------------------------------------------------
+# expected_input_files + validate_inputs_exist
+# ---------------------------------------------------------------------------
+
+
+def test_expected_input_files_lists_four(tmp_path: Path):
+    cfg = RavenInputsConfig(**_minimal_config_kwargs(tmp_path))
+    files = cfg.expected_input_files()
+    assert {p.name for p in files} == {
+        "subbasins.shp", "adj.nc", "metadata.csv", "daily.csv",
+    }
+
+
+def test_validate_inputs_exist_passes_when_all_present(tmp_path: Path):
+    cfg = RavenInputsConfig(**_minimal_config_kwargs(tmp_path))
+    for p in cfg.expected_input_files():
+        p.touch()
+    cfg.validate_inputs_exist()
+
+
+def test_validate_inputs_exist_raises_listing_all_missing(tmp_path: Path):
+    cfg = RavenInputsConfig(**_minimal_config_kwargs(tmp_path))
+    cfg.phydap_nc.touch()
+    with pytest.raises(FileNotFoundError) as exc:
+        cfg.validate_inputs_exist()
+    msg = str(exc.value)
+    assert "subbasins.shp" in msg
+    assert "metadata.csv" in msg
+    assert "daily.csv" in msg
+
+
+# ---------------------------------------------------------------------------
+# YAML round-trip
+# ---------------------------------------------------------------------------
+
+
+def test_to_dict_round_trip(tmp_path: Path):
+    cfg = RavenInputsConfig(
+        **_minimal_config_kwargs(tmp_path),
+        curve_number=70.0,
+        user_start="2003-01-01 00:00:00",
+        user_end="2021-12-31 00:00:00",
+        write_calibration_templates=False,
+        write_aspect_ratios=False,
+    )
+    rebuilt = RavenInputsConfig.from_dict(cfg.to_dict())
+    assert rebuilt == cfg
+
+
+def test_from_dict_minimal_uses_defaults(tmp_path: Path):
+    cfg = RavenInputsConfig.from_dict({
+        "watershed_name": "manning",
+        "output_dir": str(tmp_path),
+        "subbasins_shapefile": str(tmp_path / "s.shp"),
+        "phydap_nc": str(tmp_path / "n.nc"),
+        "wsc_metadata_csv": str(tmp_path / "m.csv"),
+        "wsc_daily_csv": str(tmp_path / "d.csv"),
+    })
+    assert cfg.curve_number == 63.0
+    assert cfg.write_calibration_templates is True
+    assert cfg.write_aspect_ratios is True
+    # 30 days × 24h. Comfortably > the 100h max runoff_offset so
+    # calibration can shift the forcing without aborting Raven.
+    assert cfg.forcing_margin_hours == 720.0
+
+
+def test_forcing_margin_hours_round_trips_through_yaml(tmp_path: Path):
+    """Custom margin survives serialization — non-default users (e.g.
+    a shorter calibration record, or no calibration at all) can set 0."""
+    cfg = RavenInputsConfig(
+        **_minimal_config_kwargs(tmp_path),
+        forcing_margin_hours=168.0,  # 1 week
+    )
+    out = tmp_path / "raven_inputs.yml"
+    cfg.to_yaml(out)
+    rebuilt = RavenInputsConfig.from_yaml(out)
+    assert rebuilt.forcing_margin_hours == 168.0
+
+
+def test_config_rejects_negative_forcing_margin(tmp_path: Path):
+    """A negative margin would *extend* the model past the forcing —
+    the exact bug we're guarding against. Reject at construction."""
+    with pytest.raises(ValueError, match="forcing_margin_hours"):
+        RavenInputsConfig(
+            **_minimal_config_kwargs(tmp_path),
+            forcing_margin_hours=-1.0,
+        )
+
+
+def test_config_rivers_shapefile_defaults_to_none(tmp_path: Path):
+    """Default config has no rivers shapefile — RavenView export is
+    inactive until the user explicitly opts in."""
+    cfg = RavenInputsConfig(**_minimal_config_kwargs(tmp_path))
+    assert cfg.rivers_shapefile is None
+    assert cfg.write_ravenview is True  # but no rivers → no-op
+
+
+def test_config_rivers_shapefile_coerces_str_to_path(tmp_path: Path):
+    """YAML deserializes rivers_shapefile as a string — coerce to Path
+    in __post_init__ so downstream code can rely on Path methods."""
+    rivers_str = str(tmp_path / "rivers.shp")
+    cfg = RavenInputsConfig(
+        **_minimal_config_kwargs(tmp_path),
+        rivers_shapefile=rivers_str,
+    )
+    assert isinstance(cfg.rivers_shapefile, Path)
+    assert cfg.rivers_shapefile == Path(rivers_str)
+
+
+def test_config_ravenview_dir_derives_under_raven(tmp_path: Path):
+    """ravenview_dir lives at {output_dir}/Raven/RavenView/ — adjacent
+    to Processed/ in the same Raven/ tree, so users see the output
+    next to the model files in the directory listing."""
+    cfg = RavenInputsConfig(**_minimal_config_kwargs(tmp_path))
+    assert cfg.ravenview_dir == cfg.raven_dir / "RavenView"
+
+
+def test_config_expected_input_files_includes_rivers_when_export_enabled(
+    tmp_path: Path,
+):
+    cfg = RavenInputsConfig(
+        **_minimal_config_kwargs(tmp_path),
+        rivers_shapefile=tmp_path / "rivers.shp",
+        write_ravenview=True,
+    )
+    assert (tmp_path / "rivers.shp") in cfg.expected_input_files()
+
+
+def test_config_expected_input_files_skips_rivers_when_export_disabled(
+    tmp_path: Path,
+):
+    """Setting rivers_shapefile alongside write_ravenview=False shouldn't
+    force the rivers file to exist — the file isn't going to be read."""
+    cfg = RavenInputsConfig(
+        **_minimal_config_kwargs(tmp_path),
+        rivers_shapefile=tmp_path / "rivers.shp",
+        write_ravenview=False,
+    )
+    assert (tmp_path / "rivers.shp") not in cfg.expected_input_files()
+
+
+def test_config_round_trips_ravenview_fields(tmp_path: Path):
+    """rivers_shapefile + write_ravenview survive YAML serialization."""
+    rivers = tmp_path / "rivers.shp"
+    cfg = RavenInputsConfig(
+        **_minimal_config_kwargs(tmp_path),
+        rivers_shapefile=rivers,
+        write_ravenview=False,
+    )
+    out = tmp_path / "rt.yml"
+    cfg.to_yaml(out)
+    rebuilt = RavenInputsConfig.from_yaml(out)
+    assert rebuilt.rivers_shapefile == rivers
+    assert rebuilt.write_ravenview is False
+
+
+def test_from_dict_rejects_missing_required(tmp_path: Path):
+    with pytest.raises(ValueError, match="missing"):
+        RavenInputsConfig.from_dict({
+            "watershed_name": "x",
+            "output_dir": str(tmp_path),
+        })
+
+
+def test_to_yaml_round_trip(tmp_path: Path):
+    cfg = RavenInputsConfig(**_minimal_config_kwargs(tmp_path))
+    out = tmp_path / "raven_inputs.yml"
+    cfg.to_yaml(out)
+    rebuilt = RavenInputsConfig.from_yaml(out)
+    assert rebuilt == cfg
+
+
+# ---------------------------------------------------------------------------
+# run_raven_inputs — end-to-end
+# ---------------------------------------------------------------------------
+
+
+def _build_subbasins_shp(path: Path) -> None:
+    """3-basin synthetic that satisfies prepare_basin_attributes + writers.
+
+    Layout: SUB_1 → SUB_3, SUB_2 → SUB_3, SUB_3 → -1 (outlet).
+    SUB_3 is the only Has_POI=1 subbasin → unambiguous outlet.
+    """
+    polys = [
+        Polygon([(0, 0), (1, 0), (1, 1), (0, 1)]),
+        Polygon([(1, 0), (2, 0), (2, 1), (1, 1)]),
+        Polygon([(2, 0), (3, 0), (3, 1), (2, 1)]),
+    ]
+    gdf = gpd.GeoDataFrame({
+        "SubId":      [1, 2, 3],
+        "DowSubId":   [3, 3, -1],
+        "Has_POI":    [0, 0, 1],
+        "Lake_Cat":   [0, 0, 0],          # all contributing
+        "BasArea":    [1.0e6, 2.0e6, 3.0e6],   # m²
+        "BasSlope":   [0.5, 1.0, 0.8],         # degrees
+        "BasAspect":  [10.0, 90.0, 180.0],
+        "BkfWidth":   [3.0, 4.0, 5.0],
+        "BkfDepth":   [0.5, 1.5, 2.0],          # 0.5 will be clamped to 1
+        "RivLength":  [500.0, 1500.0, 2500.0],  # m
+        "RivSlope":   [0.001, 0.002, 0.0001],   # the third triggers replacement
+        "MeanElev":   [200.0, 210.0, 220.0],
+        "FloodP_n":   [0.05, 0.06, 0.07],
+        "Ch_n":       [0.025, 0.030, 0.035],
+        "DrainArea":  [1.0e6, 3.0e6, 6.0e6],
+        "Q_Mean":     [1.5, 3.0, 5.0],
+        "Deps_Depth": [10.0, 20.0, 30.0],
+        "centroid_x": [0.5, 1.5, 2.5],
+        "centroid_y": [0.5, 0.5, 0.5],
+        "geometry":   polys,
+    }, crs="EPSG:4326")
+    gdf.to_file(path)
+
+
+def _build_phydap_adj_nc(path: Path) -> None:
+    """Tiny NetCDF with a 'time' variable in hours since 1900-01-01."""
+    with Dataset(path, "w", format="NETCDF4") as ds:
+        ds.createDimension("time", 100)
+        ds.createDimension("lat", 1)
+        ds.createDimension("lon", 3)
+        time_var = ds.createVariable("time", "f8", ("time",))
+        time_var.units = "hours since 1900-01-01 00:00:00"
+        # 100 hourly samples starting 2010-01-01 00:00:00 (110 years × 8766
+        # hours/year ≈ 964260, +0..99 hourly steps from there)
+        # 2010-01-01 = 1900-01-01 + 40177 days = 40177 * 24 = 964248 hrs
+        time_var[:] = 964248.0 + np.arange(100, dtype=np.float64)
+        runoff = ds.createVariable("runoff", "f4", ("time", "lat", "lon"))
+        runoff[:, :, :] = 0.5
+
+
+def _build_wsc_metadata_csv(path: Path) -> None:
+    pd.DataFrame({
+        "Station Name": ["GRASSMERE CREEK NEAR PINE BLUFF"],
+        "Station Number": ["05NF002"],
+    }).to_csv(path, index=False)
+
+
+def _build_wsc_daily_csv(path: Path) -> None:
+    """30 daily discharge readings from 2010-01-01 covering the NetCDF window."""
+    dates = pd.date_range("2010-01-01", periods=30, freq="D")
+    df = pd.DataFrame({
+        "Date": dates.strftime("%Y-%m-%d"),
+        "PARAM": [1] * 30,
+        "Value": [3.5] * 30,
+    })
+    # WSC daily exports have a leading row stripped via skiprows=1
+    with open(path, "w") as f:
+        f.write("# WSC daily export header\n")
+        df.to_csv(f, index=False)
+
+
+@pytest.fixture
+def synthetic_raven_inputs(tmp_path: Path) -> dict:
+    sub_path = tmp_path / "subbasins.shp"
+    nc_path = tmp_path / "adj.nc"
+    meta_path = tmp_path / "metadata.csv"
+    daily_path = tmp_path / "daily.csv"
+
+    _build_subbasins_shp(sub_path)
+    _build_phydap_adj_nc(nc_path)
+    _build_wsc_metadata_csv(meta_path)
+    _build_wsc_daily_csv(daily_path)
+
+    return {
+        "subbasins_shapefile": sub_path,
+        "phydap_nc": nc_path,
+        "wsc_metadata_csv": meta_path,
+        "wsc_daily_csv": daily_path,
+        "output_dir": tmp_path / "out",
+    }
+
+
+def _e2e_config(synthetic_raven_inputs: dict, **overrides) -> RavenInputsConfig:
+    """Build a RavenInputsConfig with a model window that matches the synthetic NC."""
+    defaults = dict(
+        watershed_name="testwater",
+        # Both NC and WSC start 2010-01-01. Use a wide user window so the
+        # NC + WSC ranges become the binding constraints (per
+        # resolve_model_window's intersect rule).
+        user_start="2000-01-01 00:00:00",
+        user_end="2025-12-31 00:00:00",
+        # Synthetic NetCDF is only 100h long. The 30-day production
+        # default would collapse the window — turn the margin off so
+        # these e2e tests exercise the writers, not the constraint.
+        forcing_margin_hours=0.0,
+    )
+    defaults.update(overrides)
+    return RavenInputsConfig(
+        **synthetic_raven_inputs,
+        **defaults,
+    )
+
+
+def test_run_raven_inputs_writes_all_required_files(synthetic_raven_inputs: dict):
+    cfg = _e2e_config(synthetic_raven_inputs)
+    result = run_raven_inputs(cfg)
+
+    assert isinstance(result, RavenInputsResult)
+    for path in (
+        result.rvi, result.rvc, result.rvp, result.rvh, result.model_rvt,
+        result.channel_rvp, result.wsc_rvt, result.wsc_outlet_txt,
+    ):
+        assert path.is_file(), f"missing required output: {path}"
+
+
+def test_run_raven_inputs_writes_optional_files_by_default(synthetic_raven_inputs: dict):
+    cfg = _e2e_config(synthetic_raven_inputs)
+    result = run_raven_inputs(cfg)
+    for path in (
+        result.rvh_template, result.rvp_template, result.channel_rvp_template,
+        result.hru_areas_csv, result.tp_tc_csv, result.aspect_ratios_csv,
+    ):
+        assert path is not None and path.is_file()
+
+
+def test_run_raven_inputs_skips_calibration_templates_when_disabled(
+    synthetic_raven_inputs: dict,
+):
+    cfg = _e2e_config(synthetic_raven_inputs, write_calibration_templates=False)
+    result = run_raven_inputs(cfg)
+    assert result.rvh_template is None
+    assert result.rvp_template is None
+    assert result.channel_rvp_template is None
+    assert result.hru_areas_csv is None
+    assert result.tp_tc_csv is None
+    # templates dir not created
+    assert not cfg.templates_dir.exists()
+
+
+def test_run_raven_inputs_skips_aspect_ratios_when_disabled(synthetic_raven_inputs: dict):
+    cfg = _e2e_config(synthetic_raven_inputs, write_aspect_ratios=False)
+    result = run_raven_inputs(cfg)
+    assert result.aspect_ratios_csv is None
+
+
+def test_run_raven_inputs_writes_outlet_subid_to_text(synthetic_raven_inputs: dict):
+    cfg = _e2e_config(synthetic_raven_inputs)
+    result = run_raven_inputs(cfg)
+    # Outlet is SUB_3 (the only Has_POI=1 row in the synthetic fixture)
+    assert result.wsc_outlet_txt.read_text().strip() == "3"
+
+
+def test_run_raven_inputs_wsc_rvt_filename_uses_station_id(synthetic_raven_inputs: dict):
+    cfg = _e2e_config(synthetic_raven_inputs)
+    result = run_raven_inputs(cfg)
+    assert result.wsc_rvt.name == "WSC05NF002.rvt"
+
+
+def test_run_raven_inputs_rvi_includes_watershed_name(synthetic_raven_inputs: dict):
+    cfg = _e2e_config(synthetic_raven_inputs)
+    result = run_raven_inputs(cfg)
+    assert "testwater" in result.rvi.read_text()
+
+
+def test_run_raven_inputs_validates_inputs_first(tmp_path: Path):
+    """Missing inputs raise before any output is created."""
+    cfg = RavenInputsConfig(
+        watershed_name="x",
+        output_dir=tmp_path / "out",
+        subbasins_shapefile=tmp_path / "missing.shp",
+        phydap_nc=tmp_path / "missing.nc",
+        wsc_metadata_csv=tmp_path / "missing_m.csv",
+        wsc_daily_csv=tmp_path / "missing_d.csv",
+    )
+    with pytest.raises(FileNotFoundError, match="missing"):
+        run_raven_inputs(cfg)
+    assert not (tmp_path / "out").exists()
+
+
+# ---------------------------------------------------------------------------
+# RavenView auto-export
+# ---------------------------------------------------------------------------
+
+
+def _build_rivers_shapefile(path: Path) -> None:
+    """Minimal rivers shapefile in EPSG:4326 — geopandas can read+reproject."""
+    gdf = gpd.GeoDataFrame(
+        {
+            "UIDENT": [101, 202],
+            "geometry": [
+                LineString([(0, 0), (1, 1), (2, 2)]),
+                LineString([(2, 2), (3, 3)]),
+            ],
+        },
+        crs="EPSG:4326",
+    )
+    gdf.to_file(path)
+
+
+def test_run_raven_inputs_writes_ravenview_when_rivers_set(
+    synthetic_raven_inputs: dict, tmp_path: Path,
+):
+    """Auto-export wiring: rivers_shapefile set → run_raven_inputs writes
+    both GeoJSONs into Raven/RavenView/ and surfaces them on the result.
+    This is the load-bearing test for the zero-discovery UX."""
+    rivers_shp = tmp_path / "rivers.shp"
+    _build_rivers_shapefile(rivers_shp)
+    cfg = _e2e_config(synthetic_raven_inputs, rivers_shapefile=rivers_shp)
+
+    result = run_raven_inputs(cfg)
+
+    assert result.ravenview_subbasins is not None
+    assert result.ravenview_rivers is not None
+    assert result.ravenview_subbasins.is_file()
+    assert result.ravenview_rivers.is_file()
+    assert result.ravenview_subbasins.parent == cfg.ravenview_dir
+    # Filenames follow RavenView's convention: <name>.json + <name>Rivers.json.
+    assert result.ravenview_subbasins.name == f"{cfg.safe_name}.json"
+    assert result.ravenview_rivers.name == f"{cfg.safe_name}Rivers.json"
+
+
+def test_run_raven_inputs_skips_ravenview_when_rivers_absent(
+    synthetic_raven_inputs: dict, caplog,
+):
+    """No rivers shapefile → no RavenView export. Step 2 logs why so the
+    user isn't left wondering why nothing landed in Raven/RavenView/."""
+    import logging
+    caplog.set_level(logging.INFO)
+    cfg = _e2e_config(synthetic_raven_inputs)  # rivers_shapefile=None by default
+
+    result = run_raven_inputs(cfg)
+
+    assert result.ravenview_subbasins is None
+    assert result.ravenview_rivers is None
+    assert not cfg.ravenview_dir.exists()
+    assert any(
+        "Skipping RavenView export" in record.message for record in caplog.records
+    )
+
+
+def test_run_raven_inputs_skips_ravenview_when_opted_out(
+    synthetic_raven_inputs: dict, tmp_path: Path,
+):
+    """write_ravenview=False → no export even when rivers_shapefile is
+    set. The flag is a hard opt-out for users who want a strict Step 2."""
+    rivers_shp = tmp_path / "rivers.shp"
+    _build_rivers_shapefile(rivers_shp)
+    cfg = _e2e_config(
+        synthetic_raven_inputs,
+        rivers_shapefile=rivers_shp,
+        write_ravenview=False,
+    )
+
+    result = run_raven_inputs(cfg)
+
+    assert result.ravenview_subbasins is None
+    assert result.ravenview_rivers is None
+    assert not cfg.ravenview_dir.exists()
+
+
+def test_run_raven_inputs_validates_rivers_shapefile_exists(
+    synthetic_raven_inputs: dict, tmp_path: Path,
+):
+    """Rivers shapefile is part of expected_input_files when RavenView is
+    enabled — a missing path fails fast with the other input checks, not
+    halfway through Step 2."""
+    cfg = _e2e_config(
+        synthetic_raven_inputs,
+        rivers_shapefile=tmp_path / "missing_rivers.shp",
+    )
+    with pytest.raises(FileNotFoundError, match="missing_rivers"):
+        run_raven_inputs(cfg)
+
+
+def test_run_raven_inputs_doesnt_require_rivers_when_opted_out(
+    synthetic_raven_inputs: dict, tmp_path: Path,
+):
+    """write_ravenview=False with a missing rivers path is allowed —
+    the file isn't going to be read. Lets users park a placeholder
+    path on a watershed where RavenView isn't wanted yet."""
+    cfg = _e2e_config(
+        synthetic_raven_inputs,
+        rivers_shapefile=tmp_path / "not_yet_provided.shp",
+        write_ravenview=False,
+    )
+    # Doesn't raise — the missing rivers file is allowed because
+    # write_ravenview is False and the file would never be opened.
+    result = run_raven_inputs(cfg)
+    assert result.ravenview_subbasins is None

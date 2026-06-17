@@ -27,4 +27,11 @@ hydro_condition.py
 archive/
 src/raven/
 scratch/
-_notebooks/watershed_nbs
+_notebooks/watershed_nbs/
+
+# Python build/test artifacts
+*.egg-info/
+.pytest_cache/
+
+# Local tooling config
+.gh_config/
