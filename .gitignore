@@ -34,4 +34,4 @@ _notebooks/watershed_nbs/
 .pytest_cache/
 
 # Local tooling config
-.gh_config/
+.gh_config/pwa_dev_mac.yml
