@@ -32,6 +32,10 @@ _notebooks/watershed_nbs/
 # Python build/test artifacts
 *.egg-info/
 .pytest_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
 
 # Local tooling config
 .gh_config/pwa_dev_mac.yml
