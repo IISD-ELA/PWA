@@ -15,6 +15,7 @@ dependencies = [
     "shapely>=2.0",
     "netCDF4>=1.6",
     "pyyaml>=6.0",
+    "scipy>=1.10",
 ]
 # Raven binary is NOT a pip dependency. Install from:
 #   http://raven.uwaterloo.ca/Downloads.html
