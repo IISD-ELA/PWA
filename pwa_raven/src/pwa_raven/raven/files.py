@@ -75,8 +75,11 @@ class RavenFile:
             Dict of calibration parameter values (keys: ``dep_fact``, ``seep_k``,
             optionally ``bedslope_mult``).
         _deps
-            Mapping of subbasin_id → base depression depth. Required if
-            ``_dep_scale`` is True.
+            Mapping of bin_label → base (binned) depression depth, e.g.
+            ``{"Bin_3": 1.42, "Bin_NA": 0.0}``. Required if
+            ``_dep_scale`` is True. The keys correspond to the
+            ``{bin_label}_dep`` placeholders that ``generate_rvp_template``
+            emits into the .rvp.tpl.
         _channel_scale
             If True, scale bedslope values using ``_param_vector["bedslope_mult"]``.
             The original accessed this key unconditionally, raising
@@ -99,9 +102,13 @@ class RavenFile:
         rvp_txt = rvp_txt.replace("seep_fact", str(seep_k))
 
         if _deps is not None:
-            for subid, base_depth in _deps.items():
+            for bin_label, base_depth in _deps.items():
                 depth_value = dep_fact * base_depth
-                rvp_txt = rvp_txt.replace(f"s{subid}_dep", str(depth_value))
+                # Placeholder convention is "{bin_label}_dep" (e.g.
+                # "Bin_3_dep", "Bin_NA_dep") matching generate_rvp_template.
+                # Multiple source rows in the same bin share one placeholder,
+                # so this single replace updates them all together.
+                rvp_txt = rvp_txt.replace(f"{bin_label}_dep", str(depth_value))
 
         # Only touch bedslope_mult when channel scaling is enabled — the
         # key may be absent from the parameter vector otherwise.
