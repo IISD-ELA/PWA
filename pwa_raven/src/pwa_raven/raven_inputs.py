@@ -526,7 +526,7 @@ def run_raven_inputs(config: RavenInputsConfig) -> RavenInputsResult:
         rvp_template = generate_rvp_template(
             output_path=config.templates_dir / f"{config.safe_name}.rvp.tpl",
             watershed_name=config.watershed_name,
-            sub_ids=prep.sub_ids,
+            bin_labels=list(enriched["Bin_Label"]),
             channel_props_filename="channel_properties",
         )
         channel_rvp_template = generate_channel_rvp_template(
