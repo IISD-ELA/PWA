@@ -25,8 +25,10 @@ What changed during extraction
   raised ``ValueError`` after a deprecation print — kept the error,
   removed the dead commented-out parameter lists.
 * **Eval window is configurable**: the original hardcoded
-  ``start_yr=1995, end_yr=2010`` inside ``simulation()``. Now passed
-  in via :class:`CalibrationConfig`.
+  ``self.start_year=1983; self.end_year=2018`` in
+  ``spot_setup_rvn.__init__``. Now passed in via
+  :class:`CalibrationConfig` (``eval_start_yr`` / ``eval_end_yr``;
+  defaults preserve the legacy values).
 * **Inputs are pathlib**: ``calib_dir`` is normalized to a ``Path`` once.
 * **Watershed name removed from setup**: replaced by the explicit
   ``model_name`` (already a parameter — just promoted to required and
@@ -180,8 +182,9 @@ class CalibrationConfig:
         Objective-function name. Must be a key in
         :data:`pwa_calibration.objectives.OBJECTIVES`.
     eval_start_yr, eval_end_yr
-        Inclusive year range for hydrograph evaluation (was hardcoded
-        1995–2010 in the original).
+        Inclusive year range for hydrograph evaluation. Defaults
+        (1983 / 2018) match the legacy ``self.start_year`` /
+        ``self.end_year`` constants in ``spot_setup_rvn.__init__``.
     spring_eval
         If True, restrict evaluation to spring months (Jan–May).
     low_seep
@@ -206,18 +209,26 @@ class CalibrationConfig:
         and isn't on PATH.
     """
 
+    # Defaults below mirror the legacy ``spot_setup_rvn.__init__``
+    # class defaults verbatim (see ``setup_spotpy.py`` at the
+    # ``pre-refactor-2026-05-28`` tag). A previous version of this
+    # dataclass shipped silently-different defaults (eval window
+    # 1995/2010, tt_split_freq=0, event_based=False, phydap_adj=True);
+    # those values had no upstream basis and a fabricated docstring
+    # masked the drift.  See `test_config_defaults_match_legacy_class_init`
+    # for the per-field assertion that pins this.
     model_name: str
     calib_dir: Path
     obj_fn: str = "kge_adj"
-    eval_start_yr: int = 1995
-    eval_end_yr: int = 2010
+    eval_start_yr: int = 1983
+    eval_end_yr: int = 2018
     spring_eval: bool = True
     low_seep: bool = False
     routing: bool = False
     dep_scaling: bool = False
     runoff_scaling: bool = False
     channel_scaling: bool = False
-    phydap_adj: bool = True
+    phydap_adj: bool = False
     split_areas: str = "none"
     mpi_cores: int = 0
     repetitions: int = 10
@@ -225,16 +236,15 @@ class CalibrationConfig:
     algorithm_kwargs: dict = field(default_factory=dict)
     raven_binary: Optional[Path] = None
     # Alternating train/test split over [eval_start_yr, eval_end_yr).
-    # 0  → use every year for training (no split — original refactor behaviour).
+    # 0  → use every year for training (no holdout).
     # 1  → hold out the first 5 years as test, train on the remainder.
-    # >1 → every k-th year is test, the rest is training (k=4 was Thomas's
-    # default in upstream master after 2026-04-29).
-    tt_split_freq: int = 0
-    # Realign each year's observed hydrograph to the simulated one by its
-    # center-of-mass before computing the objective. New science from
-    # upstream master 2026-05-04 (commit 230493c). Defaults to off until
-    # we have unit tests demonstrating the lag-shift behaviour end-to-end.
-    event_based: bool = False
+    # >1 → every k-th year is test, the rest is training. Default 4
+    #      matches the legacy class default (every 4th year held out).
+    tt_split_freq: int = 4
+    # Realign each year's observed hydrograph to the simulated one by
+    # its center-of-mass before computing the objective. Legacy class
+    # default was True (upstream commit 230493c).
+    event_based: bool = True
 
     def __post_init__(self) -> None:
         # Force calib_dir to a Path with no trailing separator.
@@ -511,11 +521,21 @@ def load_calibration_inputs(config: CalibrationConfig) -> CalibrationInputs:
     # Multiple subbasins may share a bin (same Binned_Deps); dict
     # construction collapses them naturally — keys are unique bin
     # labels and the value is each bin's binned depth.
-    deps_dict: dict = {
-        str(row["Bin_Label"]): float(row["Binned_Deps"])
-        for _, row in deps_gdf.iterrows()
-        if pd.notna(row["Bin_Label"]) and pd.notna(row["Binned_Deps"])
-    }
+    #
+    # NaN Binned_Deps (emitted by bin_depression_depths for rows with
+    # NaN/<=0 Deps_Depth, labelled "Bin_NA") must still produce a dict
+    # entry — the .rvp.tpl carries a Bin_NA_dep placeholder per row,
+    # and rvp_update needs a value for every placeholder it sees or
+    # the literal token survives into the .rvp DEP_MAX numeric field
+    # and Raven aborts with a parse error. Map NaN to 0.0 (Raven's
+    # no-depression value).
+    deps_dict: dict = {}
+    for _, row in deps_gdf.iterrows():
+        label = row["Bin_Label"]
+        if not pd.notna(label):
+            continue
+        depth = row["Binned_Deps"]
+        deps_dict[str(label)] = 0.0 if not pd.notna(depth) else float(depth)
 
     return CalibrationInputs(
         outlet=outlet,

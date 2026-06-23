@@ -15,9 +15,24 @@ from pwa_raven.grid.weights import (
 
 
 # ---------------------------------------------------------------------------
-# Fixtures: a 2x2 PHyDAP grid (HYBAS_IDs 1001..1004) covering [0,2] x [0,2],
-# and three sub-basins at known interior points.
+# Fixtures: a 2x2 PHyDAP grid (HYBAS_IDs 1001..1004) covering a small area
+# in southern Manitoba, and three sub-basins at known interior points.
+#
+# Coordinates sit in EPSG:3158's valid zone (NAD83 / UTM 14N, central
+# meridian -99°W) so the production code's reproject-to-3158 step
+# transforms cleanly. Polygons defined at nominal small coordinates
+# (e.g. (0, 0)-(1, 1)) get translated by (-98, 50) — _MB_LON / _MB_LAT —
+# before being handed to the function.
 # ---------------------------------------------------------------------------
+
+_MB_LON = -98.0
+_MB_LAT = 50.0
+
+
+def _mb(x: float, y: float) -> tuple[float, float]:
+    """Translate a 'nominal' coordinate into Manitoba (EPSG:3158-valid) lat/lon."""
+    return (x + _MB_LON, y + _MB_LAT)
+
 
 @pytest.fixture
 def phydap_2x2() -> gpd.GeoDataFrame:
@@ -25,7 +40,14 @@ def phydap_2x2() -> gpd.GeoDataFrame:
     hybas_ids = []
     for ix, x0 in enumerate([0, 1]):
         for iy, y0 in enumerate([0, 1]):
-            cells.append(Polygon([(x0, y0), (x0 + 1, y0), (x0 + 1, y0 + 1), (x0, y0 + 1)]))
+            cells.append(
+                Polygon([
+                    _mb(x0, y0),
+                    _mb(x0 + 1, y0),
+                    _mb(x0 + 1, y0 + 1),
+                    _mb(x0, y0 + 1),
+                ])
+            )
             hybas_ids.append(1001 + ix * 2 + iy)
     return gpd.GeoDataFrame({"HYBAS_ID": hybas_ids}, geometry=cells, crs="EPSG:4326")
 
@@ -39,7 +61,8 @@ def hybas_map_full() -> pd.DataFrame:
 
 
 def _subbasin_at(point_xy: tuple[float, float], sub_id: int) -> dict:
-    x, y = point_xy
+    """0.1° square polygon centred at ``_mb(*point_xy)``."""
+    x, y = _mb(*point_xy)
     poly = Polygon([(x - 0.05, y - 0.05), (x + 0.05, y - 0.05),
                     (x + 0.05, y + 0.05), (x - 0.05, y + 0.05)])
     return {"SubId": sub_id, "geometry": poly}
@@ -196,14 +219,15 @@ def test_generate_grid_weights_uses_subset_count_not_full_grid(tmp_path):
     NOT len(phydap). The forcing NetCDF Raven reads is the subset, so a
     full-grid count makes Raven abort with ':NumberGridCells given does
     not agree with NetCDF file content'."""
-    # Full PHyDAP grid: 2x2 = 4 cells.
+    # Full PHyDAP grid: 2x2 = 4 cells, translated to Manitoba so the
+    # reproject-to-EPSG:3158 step inside the production code is valid.
     phydap = gpd.GeoDataFrame(
         {"HYBAS_ID": [1001, 1002, 1003, 1004]},
         geometry=[
-            Polygon([(0, 0), (1, 0), (1, 1), (0, 1)]),  # 1001
-            Polygon([(0, 1), (1, 1), (1, 2), (0, 2)]),  # 1002
-            Polygon([(1, 0), (2, 0), (2, 1), (1, 1)]),  # 1003
-            Polygon([(1, 1), (2, 1), (2, 2), (1, 2)]),  # 1004
+            Polygon([_mb(0, 0), _mb(1, 0), _mb(1, 1), _mb(0, 1)]),  # 1001
+            Polygon([_mb(0, 1), _mb(1, 1), _mb(1, 2), _mb(0, 2)]),  # 1002
+            Polygon([_mb(1, 0), _mb(2, 0), _mb(2, 1), _mb(1, 1)]),  # 1003
+            Polygon([_mb(1, 1), _mb(2, 1), _mb(2, 2), _mb(1, 2)]),  # 1004
         ],
         crs="EPSG:4326",
     )
@@ -257,8 +281,8 @@ def test_generate_grid_weights_excludes_lake_catchments(tmp_path):
     phydap = gpd.GeoDataFrame(
         {"HYBAS_ID": [1001, 1003]},
         geometry=[
-            Polygon([(0, 0), (1, 0), (1, 1), (0, 1)]),  # 1001
-            Polygon([(1, 0), (2, 0), (2, 1), (1, 1)]),  # 1003
+            Polygon([_mb(0, 0), _mb(1, 0), _mb(1, 1), _mb(0, 1)]),  # 1001
+            Polygon([_mb(1, 0), _mb(2, 0), _mb(2, 1), _mb(1, 1)]),  # 1003
         ],
         crs="EPSG:4326",
     )
@@ -317,7 +341,7 @@ def test_generate_grid_weights_no_op_when_lake_cat_column_missing(tmp_path):
     must still run. The filter is a no-op when the column is absent."""
     phydap = gpd.GeoDataFrame(
         {"HYBAS_ID": [1001]},
-        geometry=[Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])],
+        geometry=[Polygon([_mb(0, 0), _mb(1, 0), _mb(1, 1), _mb(0, 1)])],
         crs="EPSG:4326",
     )
     phydap_path = tmp_path / "phydap.shp"
@@ -349,3 +373,154 @@ def test_generate_grid_weights_no_op_when_lake_cat_column_missing(tmp_path):
     ]
     assert len(data_rows) == 1
     assert data_rows[0].split()[0] == "1"
+
+
+# ---------------------------------------------------------------------------
+# R1 — reprojection to EPSG:3158 (metres) before nearest-distance math
+# ---------------------------------------------------------------------------
+
+def test_nearest_distance_picks_correct_cell_at_high_latitude(tmp_path):
+    """Reprojection regression (R1 in regression review): the legacy
+    notebook explicitly reprojected both layers to EPSG:3158 (metres)
+    before nearest-neighbour distance math, but the new code only
+    aligned subbasins to phydap.crs. If phydap is EPSG:4326 (degrees,
+    the WGS84 layer the engagement ships against), Euclidean distance
+    at 50°N is anisotropic — a degree of longitude (~71 km) is much
+    shorter than a degree of latitude (~111 km) — so idxmin() picks
+    a different cell than a metre-based calc would.
+
+    Fixture is a sub-basin centroid in the gap between two PHyDAP
+    cells with deliberately-different lon vs lat distances. Under
+    degree math the wrong cell wins; under metre math (post EPSG:3158
+    reprojection) the right cell wins."""
+    # PHyDAP cells placed in Manitoba (so the EPSG:3158 reprojection
+    # inside the production code is valid). Cell A: 1 degree longitude
+    # west of the test sub-basin (~71 km in metres at 50°N).  Cell B:
+    # 0.95 degrees latitude north (~105 km in metres).  Cell A is
+    # geometrically closer in metres, but in lat/lon degrees Cell B
+    # looks closer (0.95 < 1.0). With the legacy reproject-to-3158
+    # step the metre-based math picks Cell A; without it the test
+    # would pick Cell B.
+    base_lon, base_lat = _MB_LON, _MB_LAT   # -98, 50
+    phydap = gpd.GeoDataFrame(
+        {"HYBAS_ID": [10, 20]},
+        geometry=[
+            Polygon([                                            # A: 1° west
+                (base_lon - 1.05, base_lat - 0.05),
+                (base_lon - 0.95, base_lat - 0.05),
+                (base_lon - 0.95, base_lat + 0.05),
+                (base_lon - 1.05, base_lat + 0.05),
+            ]),
+            Polygon([                                            # B: ~0.95° north
+                (base_lon - 0.05, base_lat + 0.90),
+                (base_lon + 0.05, base_lat + 0.90),
+                (base_lon + 0.05, base_lat + 1.00),
+                (base_lon - 0.05, base_lat + 1.00),
+            ]),
+        ],
+        crs="EPSG:4326",
+    )
+    phydap_path = tmp_path / "phydap.shp"
+    phydap.to_file(phydap_path)
+
+    hybas_map_path = tmp_path / "hybas_map.csv"
+    pd.DataFrame({"hybas_id": [10, 20], "grid_idx": [0, 1]}).to_csv(
+        hybas_map_path, index=False
+    )
+
+    # Sub-basin centroid at the origin (base_lat°N, base_lon°E),
+    # outside both cells, so the nearest-distance branch fires.
+    subbasins = gpd.GeoDataFrame(
+        [_subbasin_at((0.0, 0.0), 1)], crs="EPSG:4326",  # _subbasin_at adds _MB_LON/_MB_LAT
+    )
+    subbasins_path = tmp_path / "subbasins.shp"
+    subbasins.to_file(subbasins_path)
+
+    out = generate_grid_weights(
+        subbasins_shp=subbasins_path,
+        phydap_shp=phydap_path,
+        hybas_map_csv=hybas_map_path,
+        watershed_name="anisotropy",
+        output_path=tmp_path / "GridWeights.txt",
+    )
+    content = out.read_text()
+    # Cell A (HYBAS 10, grid_idx 0) is closer in metres; correct pick.
+    # If reprojection is broken, the test would see grid_idx 1.
+    data_lines = [
+        ln for ln in content.splitlines()
+        if ln.strip() and ln.strip()[0].isdigit()
+    ]
+    assert len(data_lines) == 1
+    cell_idx = int(data_lines[0].split()[1])
+    assert cell_idx == 0, (
+        "Nearest-cell picked under (probably) degree-distance: got "
+        f"grid_idx={cell_idx}, expected 0. Reprojection to a metric "
+        "CRS before idxmin() is the fix."
+    )
+
+
+# ---------------------------------------------------------------------------
+# R4 — nearest pool must be filtered to the subset NetCDF
+# ---------------------------------------------------------------------------
+
+def test_nearest_pool_excludes_phydap_basins_outside_netcdf_subset(tmp_path):
+    """The legacy notebook restricted the nearest-neighbour pool to
+    PHyDAP cells present in the subset NetCDF (hybas_map), so a
+    nearest pick could never land on a cell Raven's forcing file
+    doesn't have. The new _assign_nearest_phydap receives the full
+    PHyDAP layer, can pick a HYBAS_ID outside the subset, and then
+    invents synthetic grid_idx values past n_grid_cells — Raven
+    reads out-of-range. This test pins the legacy guarantee."""
+    # Three PHyDAP cells: two are in the subset NetCDF, ONE is not.
+    # The non-subset cell (HYBAS 999) is placed closest to the
+    # sub-basin centroid, so without filtering it would win idxmin().
+    phydap = gpd.GeoDataFrame(
+        {"HYBAS_ID": [10, 20, 999]},
+        geometry=[
+            Polygon([_mb(0, 0), _mb(1, 0), _mb(1, 1), _mb(0, 1)]),               # in subset, far
+            Polygon([_mb(5, 5), _mb(6, 5), _mb(6, 6), _mb(5, 6)]),               # in subset, far
+            Polygon([_mb(1.5, 1.5), _mb(1.6, 1.5), _mb(1.6, 1.6), _mb(1.5, 1.6)]),  # NOT in subset, near
+        ],
+        crs="EPSG:4326",
+    )
+    phydap_path = tmp_path / "phydap.shp"
+    phydap.to_file(phydap_path)
+
+    # hybas_map: subset of PHyDAP — HYBAS 10 and 20 only, NOT 999.
+    hybas_map_path = tmp_path / "hybas_map.csv"
+    pd.DataFrame({"hybas_id": [10, 20], "grid_idx": [0, 1]}).to_csv(
+        hybas_map_path, index=False
+    )
+
+    # Sub-basin centroid at (2, 2) — outside all cells, with HYBAS 999
+    # geometrically closest. Filtering MUST happen so 999 is excluded.
+    subbasins = gpd.GeoDataFrame(
+        [_subbasin_at((2.0, 2.0), 1)], crs="EPSG:4326",
+    )
+    subbasins_path = tmp_path / "subbasins.shp"
+    subbasins.to_file(subbasins_path)
+
+    out = generate_grid_weights(
+        subbasins_shp=subbasins_path,
+        phydap_shp=phydap_path,
+        hybas_map_csv=hybas_map_path,
+        watershed_name="subset_filter",
+        output_path=tmp_path / "GridWeights.txt",
+    )
+    content = out.read_text()
+    # NumberGridCells must equal hybas_map length (2). The data line's
+    # grid_idx must reference a cell in [0, 2) — never the synthetic
+    # value the unfiltered pool would create.
+    assert ":NumberGridCells  2" in content
+    data_lines = [
+        ln for ln in content.splitlines()
+        if ln.strip() and ln.strip()[0].isdigit()
+    ]
+    assert len(data_lines) == 1
+    cell_idx = int(data_lines[0].split()[1])
+    assert 0 <= cell_idx < 2, (
+        "Nearest pick landed on a HYBAS_ID not in the subset NetCDF; "
+        f"got grid_idx={cell_idx}, expected in [0, 2). Restoring the "
+        "valid_phydap = phydap[HYBAS_ID.isin(hybas_map.hybas_id)] "
+        "filter in _assign_nearest_phydap fixes this."
+    )

@@ -58,9 +58,14 @@ def compute_subbasin_to_grid_mapping(
     pandas.DataFrame
         Columns: ``SubId``, ``HYBAS_ID``, ``grid_idx``. One row per sub-basin.
     """
-    if subbasins.crs != phydap.crs:
-        logger.info("Reprojecting sub-basins from %s to %s", subbasins.crs, phydap.crs)
-        subbasins = subbasins.to_crs(phydap.crs)
+    # Reproject BOTH layers to EPSG:3158 (NAD83 / UTM 14N, metres).
+    # The nearest-neighbour distance math below would otherwise run
+    # in degrees at high latitudes, where a degree of longitude
+    # (~71 km at 50°N) is much shorter than a degree of latitude
+    # (~111 km) — idxmin() picks the wrong cell. Matches the legacy
+    # notebook's explicit reprojection (1_nc_processing.ipynb).
+    subbasins = subbasins.to_crs(epsg=3158)
+    phydap = phydap.to_crs(epsg=3158)
 
     phydap = phydap[phydap.geometry.is_valid & ~phydap.geometry.is_empty].copy()
 
@@ -81,9 +86,25 @@ def compute_subbasin_to_grid_mapping(
     )
 
     if n_missing > 0:
+        # Restrict the nearest-neighbour candidate pool to PHyDAP cells
+        # that exist in the subset NetCDF — otherwise idxmin() can pick
+        # a HYBAS_ID Raven's forcing file doesn't have, and the
+        # downstream synthetic-grid_idx append produces grid_idx values
+        # past :NumberGridCells (out-of-range read). Matches the legacy
+        # notebook's `valid_phydap = phydap_shp[...isin(hybas_map.hybas_id)]`.
+        subset_hybas_ids = set(hybas_map["hybas_id"].astype(int))
+        valid_phydap = phydap[phydap[hybas_id_col].astype(int).isin(subset_hybas_ids)]
+        if valid_phydap.empty:
+            # Degenerate case — every PHyDAP cell got filtered out.
+            # Better to surface this than silently fall through.
+            raise ValueError(
+                "No PHyDAP cells in the subset NetCDF — "
+                "hybas_map.hybas_id and phydap.HYBAS_ID don't overlap."
+            )
+
         unmatched_ids = mapping.loc[missing_mask, subbasin_id_col]
         unmatched = centroids[centroids[subbasin_id_col].isin(unmatched_ids)]
-        nearest = _assign_nearest_phydap(unmatched, phydap, subbasin_id_col, hybas_id_col)
+        nearest = _assign_nearest_phydap(unmatched, valid_phydap, subbasin_id_col, hybas_id_col)
         mapping = pd.concat(
             [mapping[~missing_mask], nearest],
             ignore_index=True,

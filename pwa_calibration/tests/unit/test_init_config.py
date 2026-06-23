@@ -62,7 +62,7 @@ def test_main_writes_valid_yaml(monkeypatch, tmp_path: Path, capsys):
     # The dataclass defaults flow through (we didn't prompt for these)
     assert cfg.spring_eval is True
     assert cfg.routing is False
-    assert cfg.phydap_adj is True
+    assert cfg.phydap_adj is False    # legacy class default
 
 
 def test_main_uses_defaults_on_blank_input(monkeypatch, tmp_path: Path):

@@ -181,6 +181,47 @@ def test_config_repetitions_algorithm_defaults(tmp_path: Path):
     assert cfg.algorithm_kwargs == {}
 
 
+def test_config_defaults_match_legacy_class_init(tmp_path: Path):
+    """Pins the no-args dataclass defaults against the values the
+    legacy ``spot_setup_rvn.__init__`` would have used (master
+    pre-refactor tag ``pre-refactor-2026-05-28``, file
+    ``src/py/setup_spotpy.py``).
+
+    These had drifted silently during the extraction:
+      - eval window was 1983/2018 in the legacy hardcoded body, not
+        1995/2010 as a fabricated docstring claimed
+      - tt_split_freq legacy class default was 4 (every-4th-year
+        holdout), new code shipped 0 (no test holdout — overfitting)
+      - event_based legacy class default was True, new code False
+      - phydap_adj legacy class default was False, new code True
+        (adds a runoff_offset calibration dimension by default)
+
+    The drift wasn't caught because every prior config test pinned
+    the new (wrong) value as its own regression baseline. This test
+    establishes the legacy class defaults as the actual reference.
+    Production 3_calibrate.py override semantics (e.g. nse_pbias,
+    routing=True) are not preserved here — users should set them
+    explicitly via YAML, matching how the legacy script did."""
+    cfg = CalibrationConfig(model_name="m", calib_dir=tmp_path)
+
+    # Eval window — legacy hardcoded self.start_year=1983, self.end_year=2018
+    assert cfg.eval_start_yr == 1983
+    assert cfg.eval_end_yr == 2018
+
+    # Calibration toggles — legacy __init__ class defaults
+    assert cfg.obj_fn == "kge_adj"
+    assert cfg.spring_eval is True
+    assert cfg.low_seep is False
+    assert cfg.routing is False
+    assert cfg.dep_scaling is False
+    assert cfg.runoff_scaling is False
+    assert cfg.channel_scaling is False
+    assert cfg.phydap_adj is False
+    assert cfg.tt_split_freq == 4
+    assert cfg.event_based is True
+    assert cfg.mpi_cores == 0
+
+
 def test_config_rejects_repetitions_below_one(tmp_path: Path):
     with pytest.raises(ValueError, match="repetitions"):
         CalibrationConfig(model_name="m", calib_dir=tmp_path, repetitions=0)
@@ -297,6 +338,89 @@ def test_load_calibration_inputs_round_trip(tmp_path: Path):
     # Bin_<SubId> labels and the raw Deps_Depth as Binned_Deps.
     assert inputs.deps == {"Bin_101": 0.25, "Bin_102": 0.30}
     assert inputs.qrefs == {101: 1.1, 102: 2.2}
+
+
+def test_load_calibration_inputs_includes_bin_na_for_nan_depths(tmp_path: Path):
+    """Cross-seam regression: bin_depression_depths labels NaN/<=0
+    depths as ``"Bin_NA"`` (with NaN Binned_Deps) and the .rvp.tpl
+    contains a ``Bin_NA_dep`` placeholder per row, but the deps dict
+    used by ``RavenFile.rvp_update`` must include a ``"Bin_NA"`` key
+    too — otherwise the placeholder survives the substitution loop
+    and Raven aborts trying to parse the literal string as DEP_MAX.
+
+    Production trigger: any watershed with a subbasin whose
+    ``Deps_Depth`` is NaN or ≤ 0 (small upland subbasins, missing
+    data, lake catchments that survived the contributing filter)."""
+    import numpy as np
+    input_dir = tmp_path / "input"
+    input_dir.mkdir(parents=True, exist_ok=True)
+    (input_dir / "watershed_test_WSC_outlet.txt").write_text("875\n")
+    pd.DataFrame(
+        {"SubId": [101, 102, 103], "Aspect_Ratio": [0.5, 0.7, 0.9]}
+    ).to_csv(input_dir / "aspect_ratios.csv", index=False)
+    pd.DataFrame(
+        {"HRU": [1, 2, 3], "AREA": [10.0, 20.0, 30.0]}
+    ).to_csv(input_dir / "watershed_test_HRU_areas.csv", index=False)
+    pd.DataFrame(
+        {"SubId": [101, 102], "tp": [1.5, 2.0], "tc": [3.0, 4.0]}
+    ).to_csv(input_dir / "watershed_test_tp_tc.csv", index=False)
+    # Shapefile carries a NaN depth on SubId 103 — the seam-triggering case.
+    deps_gdf = gpd.GeoDataFrame(
+        {
+            "SubId": [101, 102, 103],
+            "Deps_Depth": [0.25, 0.30, np.nan],
+            "Q_Mean": [1.1, 2.2, 3.3],
+            "geometry": [Point(0, 0), Point(1, 1), Point(2, 2)],
+        },
+        crs="EPSG:4326",
+    )
+    deps_gdf.to_file(input_dir / "CLRH_basins_depression_depths.shp")
+
+    cfg = CalibrationConfig(model_name="watershed_test", calib_dir=tmp_path)
+    inputs = load_calibration_inputs(cfg)
+
+    # Bin_NA must be present so rvp_update can substitute its placeholder.
+    # Map to 0.0 (Raven's no-depression value) since the underlying
+    # Binned_Deps is NaN.
+    assert "Bin_NA" in inputs.deps
+    assert inputs.deps["Bin_NA"] == 0.0
+    # The two valid rows should still be keyed by Bin_<SubId> (1:1
+    # fallback, since the watershed has < 50 subbasins).
+    assert inputs.deps["Bin_101"] == 0.25
+    assert inputs.deps["Bin_102"] == 0.30
+
+
+def test_rvp_update_raises_on_unsubstituted_dep_placeholder(tmp_path: Path):
+    """Defence-in-depth: even if the deps dict is incomplete (e.g.
+    bin_depression_depths emitted a Bin_X label that load_calibration_
+    inputs filtered out), rvp_update must NOT silently write a literal
+    placeholder string into the .rvp's DEP_MAX numeric field. Raven
+    would abort with a parse error far from the real cause.
+
+    This test goes red until rvp_update gains a "no unsubstituted
+    _dep tokens remain" guard."""
+    from pwa_raven.raven.files import RavenFile
+
+    # Build a minimal template that contains a placeholder for which
+    # the caller deliberately doesn't supply a value.
+    tpl_dir = tmp_path / "templates"
+    tpl_dir.mkdir()
+    (tpl_dir / "model.rvp.tpl").write_text(
+        ":Bedslope\t\t\t 0.001000\n"
+        "seep_fact\n"
+        "Bin_3_dep\n"        # provided in _deps
+        "Bin_NA_dep\n"       # NOT provided — this is the bug we're guarding
+    )
+    rf = RavenFile("model", calib_dir=tmp_path, extension="rvp")
+
+    with pytest.raises(ValueError, match="unsubstituted .*_dep"):
+        rf.rvp_update(
+            "no_split",
+            _dep_scale=True,
+            _param_vector={"seep_k": 0.05, "dep_fact": 1.0, "bedslope_mult": 1.0},
+            _deps={"Bin_3": 10.0},   # Bin_NA omitted on purpose
+            _channel_scale=True,
+        )
 
 
 def test_load_calibration_inputs_uses_pathlib_not_backslashes(tmp_path: Path):
@@ -452,10 +576,10 @@ def test_from_dict_minimal_uses_defaults(tmp_path: Path):
         "calib_dir": str(tmp_path),
     })
     assert cfg.model_name == "grassmere"
-    assert cfg.obj_fn == "kge_adj"      # default
-    assert cfg.eval_start_yr == 1995    # default
-    assert cfg.spring_eval is True      # default
-    assert cfg.routing is False         # default
+    assert cfg.obj_fn == "kge_adj"      # legacy class default
+    assert cfg.eval_start_yr == 1983    # legacy hardcoded start_year
+    assert cfg.spring_eval is True      # legacy class default
+    assert cfg.routing is False         # legacy class default
 
 
 def test_from_dict_rejects_missing_model_name(tmp_path: Path):
@@ -473,10 +597,24 @@ def test_from_dict_rejects_missing_calib_dir():
 # ---------------------------------------------------------------------------
 
 
-def test_train_years_default_is_full_window(tmp_path: Path):
-    """tt_split_freq=0 (default) → every year in [start, end) is training."""
+def test_train_years_default_holds_out_every_fourth(tmp_path: Path):
+    """tt_split_freq=4 (legacy class default) → every 4th year is the
+    test set, the rest is training. The legacy spot_setup_rvn used
+    ``model_years[::tt_split_freq]`` as test_years."""
     cfg = CalibrationConfig(
         model_name="m", calib_dir=tmp_path, eval_start_yr=2000, eval_end_yr=2005,
+    )
+    # eval window: 2000, 2001, 2002, 2003, 2004 (range stops before 2005)
+    # tt_split_freq=4 default → test set is [2000, 2004]
+    assert list(cfg.test_years) == [2000, 2004]
+    assert list(cfg.train_years) == [2001, 2002, 2003]
+
+
+def test_train_years_split_freq_zero_keeps_all(tmp_path: Path):
+    """tt_split_freq=0 → no holdout, every year trains."""
+    cfg = CalibrationConfig(
+        model_name="m", calib_dir=tmp_path,
+        eval_start_yr=2000, eval_end_yr=2005, tt_split_freq=0,
     )
     assert list(cfg.train_years) == [2000, 2001, 2002, 2003, 2004]
     assert list(cfg.test_years) == []

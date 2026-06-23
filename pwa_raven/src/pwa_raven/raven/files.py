@@ -110,6 +110,26 @@ class RavenFile:
                 # so this single replace updates them all together.
                 rvp_txt = rvp_txt.replace(f"{bin_label}_dep", str(depth_value))
 
+            # Defence-in-depth: any remaining "{label}_dep" tokens in
+            # the body mean the caller's _deps was incomplete (e.g.
+            # load_calibration_inputs filtered out the Bin_NA bucket
+            # while generate_rvp_template still emitted Bin_NA_dep).
+            # Raven would abort trying to parse the literal token as
+            # DEP_MAX — fail loudly here with the missing keys instead.
+            leftover = re.findall(r"\b\w+_dep\b", rvp_txt)
+            if leftover:
+                unique = sorted(set(leftover))
+                raise ValueError(
+                    f"rvp_update left {len(leftover)} unsubstituted "
+                    f"_dep placeholder(s) in {self.filepath.name}: "
+                    f"{unique[:10]}{'...' if len(unique) > 10 else ''}. "
+                    f"_deps keys provided: {sorted(_deps.keys())}. "
+                    "Likely cause: load_calibration_inputs filtered a "
+                    "bin label out of the deps dict (e.g. Bin_NA for "
+                    "NaN-depth rows) but generate_rvp_template still "
+                    "emitted its placeholder."
+                )
+
         # Only touch bedslope_mult when channel scaling is enabled — the
         # key may be absent from the parameter vector otherwise.
         if _channel_scale:
