@@ -32,9 +32,10 @@ obj_fn: kge_adj
 # ---- Evaluation window -------------------------------------------------
 
 # Inclusive year range used to compare simulated vs observed flows.
-# Was hardcoded 1995-2010 in the original notebook.
-eval_start_yr: 1995
-eval_end_yr: 2010
+# Defaults (1983-2018) match the legacy spot_setup_rvn.__init__ hardcoded
+# self.start_year / self.end_year. Narrow if you want a shorter window.
+eval_start_yr: 1983
+eval_end_yr: 2018
 
 # If true, restrict evaluation to spring months (Jan-May).
 spring_eval: true
@@ -53,7 +54,10 @@ routing: false
 dep_scaling: false
 runoff_scaling: false
 channel_scaling: false
-phydap_adj: true
+# Default false matches the legacy class default. Set true to enable
+# the runoff_offset calibration dimension; see questions-for-thomas
+# Q-007 about forcing-window headroom when this is on.
+phydap_adj: false
 
 # ---- Spatial subdivision ----------------------------------------------
 

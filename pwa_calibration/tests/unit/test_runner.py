@@ -130,9 +130,9 @@ def test_cli_builds_minimal_config(tmp_path: Path):
     cfg = _build_config_from_args(args)
     assert cfg.model_name == "grassmere"
     assert cfg.calib_dir == tmp_path
-    assert cfg.obj_fn == "kge_adj"  # default
+    assert cfg.obj_fn == "kge_adj"  # legacy class default
     assert cfg.spring_eval is True
-    assert cfg.phydap_adj is True
+    assert cfg.phydap_adj is False  # legacy class default
     assert cfg.is_mpi is False  # mpi_cores defaults to 0
 
 

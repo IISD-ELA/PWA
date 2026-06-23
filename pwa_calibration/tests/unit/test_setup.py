@@ -181,6 +181,47 @@ def test_config_repetitions_algorithm_defaults(tmp_path: Path):
     assert cfg.algorithm_kwargs == {}
 
 
+def test_config_defaults_match_legacy_class_init(tmp_path: Path):
+    """Pins the no-args dataclass defaults against the values the
+    legacy ``spot_setup_rvn.__init__`` would have used (master
+    pre-refactor tag ``pre-refactor-2026-05-28``, file
+    ``src/py/setup_spotpy.py``).
+
+    These had drifted silently during the extraction:
+      - eval window was 1983/2018 in the legacy hardcoded body, not
+        1995/2010 as a fabricated docstring claimed
+      - tt_split_freq legacy class default was 4 (every-4th-year
+        holdout), new code shipped 0 (no test holdout — overfitting)
+      - event_based legacy class default was True, new code False
+      - phydap_adj legacy class default was False, new code True
+        (adds a runoff_offset calibration dimension by default)
+
+    The drift wasn't caught because every prior config test pinned
+    the new (wrong) value as its own regression baseline. This test
+    establishes the legacy class defaults as the actual reference.
+    Production 3_calibrate.py override semantics (e.g. nse_pbias,
+    routing=True) are not preserved here — users should set them
+    explicitly via YAML, matching how the legacy script did."""
+    cfg = CalibrationConfig(model_name="m", calib_dir=tmp_path)
+
+    # Eval window — legacy hardcoded self.start_year=1983, self.end_year=2018
+    assert cfg.eval_start_yr == 1983
+    assert cfg.eval_end_yr == 2018
+
+    # Calibration toggles — legacy __init__ class defaults
+    assert cfg.obj_fn == "kge_adj"
+    assert cfg.spring_eval is True
+    assert cfg.low_seep is False
+    assert cfg.routing is False
+    assert cfg.dep_scaling is False
+    assert cfg.runoff_scaling is False
+    assert cfg.channel_scaling is False
+    assert cfg.phydap_adj is False
+    assert cfg.tt_split_freq == 4
+    assert cfg.event_based is True
+    assert cfg.mpi_cores == 0
+
+
 def test_config_rejects_repetitions_below_one(tmp_path: Path):
     with pytest.raises(ValueError, match="repetitions"):
         CalibrationConfig(model_name="m", calib_dir=tmp_path, repetitions=0)
@@ -535,10 +576,10 @@ def test_from_dict_minimal_uses_defaults(tmp_path: Path):
         "calib_dir": str(tmp_path),
     })
     assert cfg.model_name == "grassmere"
-    assert cfg.obj_fn == "kge_adj"      # default
-    assert cfg.eval_start_yr == 1995    # default
-    assert cfg.spring_eval is True      # default
-    assert cfg.routing is False         # default
+    assert cfg.obj_fn == "kge_adj"      # legacy class default
+    assert cfg.eval_start_yr == 1983    # legacy hardcoded start_year
+    assert cfg.spring_eval is True      # legacy class default
+    assert cfg.routing is False         # legacy class default
 
 
 def test_from_dict_rejects_missing_model_name(tmp_path: Path):
@@ -556,10 +597,24 @@ def test_from_dict_rejects_missing_calib_dir():
 # ---------------------------------------------------------------------------
 
 
-def test_train_years_default_is_full_window(tmp_path: Path):
-    """tt_split_freq=0 (default) → every year in [start, end) is training."""
+def test_train_years_default_holds_out_every_fourth(tmp_path: Path):
+    """tt_split_freq=4 (legacy class default) → every 4th year is the
+    test set, the rest is training. The legacy spot_setup_rvn used
+    ``model_years[::tt_split_freq]`` as test_years."""
     cfg = CalibrationConfig(
         model_name="m", calib_dir=tmp_path, eval_start_yr=2000, eval_end_yr=2005,
+    )
+    # eval window: 2000, 2001, 2002, 2003, 2004 (range stops before 2005)
+    # tt_split_freq=4 default → test set is [2000, 2004]
+    assert list(cfg.test_years) == [2000, 2004]
+    assert list(cfg.train_years) == [2001, 2002, 2003]
+
+
+def test_train_years_split_freq_zero_keeps_all(tmp_path: Path):
+    """tt_split_freq=0 → no holdout, every year trains."""
+    cfg = CalibrationConfig(
+        model_name="m", calib_dir=tmp_path,
+        eval_start_yr=2000, eval_end_yr=2005, tt_split_freq=0,
     )
     assert list(cfg.train_years) == [2000, 2001, 2002, 2003, 2004]
     assert list(cfg.test_years) == []
