@@ -293,7 +293,9 @@ def test_load_calibration_inputs_round_trip(tmp_path: Path):
     assert inputs.HRU_areas == {1: 10.0, 2: 20.0, 3: 30.0}
     assert inputs.tps == {101: 1.5, 102: 2.0}
     assert inputs.tcs == {101: 3.0, 102: 4.0}
-    assert inputs.deps == {101: 0.25, 102: 0.30}
+    # 2 subbasins → small-watershed binning path → 1:1 mapping with
+    # Bin_<SubId> labels and the raw Deps_Depth as Binned_Deps.
+    assert inputs.deps == {"Bin_101": 0.25, "Bin_102": 0.30}
     assert inputs.qrefs == {101: 1.1, 102: 2.2}
 
 

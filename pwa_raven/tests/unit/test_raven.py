@@ -30,14 +30,16 @@ from pwa_raven.raven.runner import (
 
 
 def _setup_rvp_tpl(tmp_path: Path) -> RavenFile:
-    """Create a minimal .rvp template and return a RavenFile pointing at it."""
+    """Create a minimal .rvp template with bin-keyed placeholders."""
     tpl_dir = tmp_path / "templates"
     tpl_dir.mkdir()
+    # Placeholder convention matches generate_rvp_template's output:
+    # "{bin_label}_dep" — e.g. "Bin_3_dep", "Bin_NA_dep".
     tpl_content = (
         ":Bedslope\t\t\t 0.001000\n"
         "seep_fact\n"
-        "s100_dep\n"
-        "s200_dep\n"
+        "Bin_3_dep\n"
+        "Bin_7_dep\n"
     )
     (tpl_dir / "model.rvp.tpl").write_text(tpl_content)
     return RavenFile("model", calib_dir=tmp_path, extension="rvp")
@@ -46,7 +48,9 @@ def _setup_rvp_tpl(tmp_path: Path) -> RavenFile:
 def test_rvp_update_substitutes_params(tmp_path: Path) -> None:
     rf = _setup_rvp_tpl(tmp_path)
     params = {"seep_k": 0.05, "dep_fact": 1.5, "bedslope_mult": 2.0}
-    deps = {100: 10.0, 200: 20.0}
+    # Deps dict is now keyed by bin label (not sub_id) — matches the
+    # template's placeholders.
+    deps = {"Bin_3": 10.0, "Bin_7": 20.0}
 
     rf.rvp_update("no_split", _dep_scale=True, _param_vector=params, _deps=deps, _channel_scale=True)
 
@@ -55,6 +59,9 @@ def test_rvp_update_substitutes_params(tmp_path: Path) -> None:
     assert "15.0" in result  # 1.5 * 10
     assert "30.0" in result  # 1.5 * 20
     assert "0.002" in result  # bedslope scaled by 2x
+    # Placeholders should be fully resolved (no Bin_*_dep tokens left).
+    assert "Bin_3_dep" not in result
+    assert "Bin_7_dep" not in result
 
 
 def test_rvp_update_without_channel_scale(tmp_path: Path) -> None:

@@ -456,7 +456,19 @@ class CalibrationConfig:
 
 @dataclass
 class CalibrationInputs:
-    """Parsed input files needed by ``simulation()``."""
+    """Parsed input files needed by ``simulation()``.
+
+    Attributes
+    ----------
+    deps
+        Mapping of ``Bin_Label`` (str, e.g. ``"Bin_3"``) → binned
+        depression depth (``Binned_Deps``). Used by
+        ``RavenFile.rvp_update`` to substitute ``{bin_label}_dep``
+        placeholders in the .rvp.tpl with ``dep_fact * Binned_Deps``
+        per calibration iteration. Multiple subbasins sharing a bin
+        collapse to a single dict entry (they all share the same
+        Binned_Deps value).
+    """
     outlet: int
     aspect_ratios: dict
     HRU_areas: dict
@@ -486,13 +498,32 @@ def load_calibration_inputs(config: CalibrationConfig) -> CalibrationInputs:
     tp_tc_df = pd.read_csv(input_dir / f"{model_name}_tp_tc.csv")
     deps_gdf = gpd.read_file(input_dir / "CLRH_basins_depression_depths.shp")
 
+    # Re-key depression depths by Bin_Label so the calibration's
+    # placeholder substitution lines up with the per-bin templates
+    # written by generate_rvp_template. If the shapefile already
+    # carries Bin_Label / Binned_Deps (e.g. produced by a recent Step 2
+    # run), use those directly; otherwise compute the binning on the
+    # fly so the calibration works against shapefiles staged from older
+    # Step 0/2 runs.
+    if "Bin_Label" not in deps_gdf.columns or "Binned_Deps" not in deps_gdf.columns:
+        from pwa_raven.raven.basin_prep import bin_depression_depths
+        deps_gdf = bin_depression_depths(deps_gdf)
+    # Multiple subbasins may share a bin (same Binned_Deps); dict
+    # construction collapses them naturally — keys are unique bin
+    # labels and the value is each bin's binned depth.
+    deps_dict: dict = {
+        str(row["Bin_Label"]): float(row["Binned_Deps"])
+        for _, row in deps_gdf.iterrows()
+        if pd.notna(row["Bin_Label"]) and pd.notna(row["Binned_Deps"])
+    }
+
     return CalibrationInputs(
         outlet=outlet,
         aspect_ratios=aspect_df.set_index("SubId")["Aspect_Ratio"].to_dict(),
         HRU_areas=hru_df.set_index("HRU")["AREA"].to_dict(),
         tps=tp_tc_df.set_index("SubId")["tp"].to_dict(),
         tcs=tp_tc_df.set_index("SubId")["tc"].to_dict(),
-        deps=dict(zip(deps_gdf["SubId"], deps_gdf["Deps_Depth"])),
+        deps=deps_dict,
         qrefs=dict(zip(deps_gdf["SubId"], deps_gdf["Q_Mean"])),
     )
 

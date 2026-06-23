@@ -12,6 +12,7 @@ from pwa_raven.raven.basin_prep import (
     MIN_BKF_DEPTH,
     MIN_RIV_SLOPE,
     MIN_RIV_SLOPE_REPLACEMENT,
+    bin_depression_depths,
     compute_time_of_concentration,
     filter_contributing_basins,
     find_watershed_outlet,
@@ -95,6 +96,7 @@ def basin_gdf() -> gpd.GeoDataFrame:
         "Has_POI": [0, 1],
         "DowSubId": [2, -1],
         "DrainArea": [1_000_000.0, 5_000_000.0],
+        "Deps_Depth": [10.0, 25.0],
         "geometry": [_box(1), _box(2)],
     }, crs="EPSG:4326")
 
@@ -338,3 +340,190 @@ def test_compute_aspect_ratios_preserves_nan_for_unparseable_geom():
     out = compute_aspect_ratios(gdf)
     assert out["Aspect_Ratio"].iloc[0] == pytest.approx(1.0)
     assert pd.isna(out["Aspect_Ratio"].iloc[1])
+
+
+# ---------------------------------------------------------------------------
+# bin_depression_depths — see upstream ae706d6 + e138d9d
+# ---------------------------------------------------------------------------
+
+import numpy as np
+import pandas as pd
+from shapely.geometry import Point
+
+
+def _bin_gdf(sub_ids, depths):
+    """Helper: build a minimal subbasins gdf with SubId + Deps_Depth."""
+    return gpd.GeoDataFrame(
+        {
+            "SubId": list(sub_ids),
+            "Deps_Depth": list(depths),
+            "geometry": [Point(i, 0) for i in range(len(sub_ids))],
+        },
+        crs="EPSG:4326",
+    )
+
+
+def test_bin_small_watershed_uses_1_to_1_fallback():
+    """≤ n_bins subbasins: each subbasin is its own bin, label is
+    Bin_<SubId>, Binned_Deps is the raw depth (no information loss)."""
+    gdf = _bin_gdf(sub_ids=range(1, 11), depths=[float(i) for i in range(1, 11)])
+    out = bin_depression_depths(gdf, n_bins=50)
+
+    for _, row in out.iterrows():
+        assert row["Bin_Label"] == f"Bin_{int(row['SubId'])}"
+        assert row["Binned_Deps"] == row["Deps_Depth"]
+
+
+def test_bin_large_watershed_uses_exponential_bins():
+    """> n_bins valid subbasins: bins are Bin_<int> for the non-top-N
+    population. Each subbasin gets a Bin_Label, total unique bin count
+    ≤ n_bins (plus top-N preserved labels)."""
+    rng = np.random.default_rng(42)
+    n = 100
+    gdf = _bin_gdf(
+        sub_ids=range(1, n + 1),
+        depths=rng.exponential(scale=5.0, size=n),
+    )
+
+    out = bin_depression_depths(gdf, n_bins=50, top_n_preserve=10)
+
+    assert "Bin_Label" in out.columns
+    assert "Binned_Deps" in out.columns
+    # Every row has a label.
+    assert out["Bin_Label"].notna().all()
+    # Top 10 deepest keep their raw values + Bin_<SubId>.
+    top10 = out.nlargest(10, "Deps_Depth")
+    for _, row in top10.iterrows():
+        assert row["Bin_Label"] == f"Bin_{int(row['SubId'])}"
+        assert row["Binned_Deps"] == row["Deps_Depth"]
+    # Remaining 90 should be on bin labels of the form Bin_<int>.
+    rest = out.drop(top10.index)
+    assert all(lbl.startswith("Bin_") for lbl in rest["Bin_Label"])
+    # And their Binned_Deps is the bin mean, not the raw depth (with
+    # vanishing probability of coincidence).
+    n_coincidences = (rest["Binned_Deps"] == rest["Deps_Depth"]).sum()
+    assert n_coincidences < len(rest)
+
+
+def test_bin_top_n_preserves_deepest_subbasins():
+    """The top_n_preserve deepest subbasins always retain raw depth +
+    a per-subbasin label, even on the large-watershed path. Protects
+    the extremes that drive depression-storage runoff."""
+    n = 60
+    depths = [float(i) for i in range(1, n + 1)]  # 1..60, strictly increasing
+    gdf = _bin_gdf(sub_ids=range(1, n + 1), depths=depths)
+
+    out = bin_depression_depths(gdf, n_bins=50, top_n_preserve=10)
+
+    # Deepest 10 = SubIds 51..60 → must have Bin_<sub_id> + raw depth.
+    deepest_ids = list(range(51, 61))
+    for sub_id in deepest_ids:
+        row = out[out["SubId"] == sub_id].iloc[0]
+        assert row["Bin_Label"] == f"Bin_{sub_id}"
+        assert row["Binned_Deps"] == float(sub_id)
+
+
+def test_bin_top_n_preserve_zero_disables_preservation():
+    """top_n_preserve=0 disables the top-N override. On the large-
+    watershed path this means bin indices range 0..(n_bins-1) and no
+    rows get the per-SubId Bin_<SubId> label that top_n=10 would
+    otherwise produce for the deepest 10."""
+    rng = np.random.default_rng(7)
+    n = 100
+    sub_ids = list(range(1, n + 1))
+    # Generate depths well-separated from sub_id values so we can tell
+    # a Bin_<sub_id> label from a Bin_<bin_idx> label by inspection.
+    depths = rng.exponential(scale=4.0, size=n)
+    gdf = _bin_gdf(sub_ids=sub_ids, depths=depths)
+
+    out_no_preserve = bin_depression_depths(gdf, n_bins=50, top_n_preserve=0)
+    out_with_preserve = bin_depression_depths(gdf, n_bins=50, top_n_preserve=10)
+
+    # The 10 deepest subbasins get per-SubId labels WITH preservation
+    # and per-bin-index labels WITHOUT.
+    deepest_ids_no = (
+        out_no_preserve.nlargest(10, "Deps_Depth").sort_index()["Bin_Label"].tolist()
+    )
+    deepest_ids_with = (
+        out_with_preserve.nlargest(10, "Deps_Depth").sort_index()["Bin_Label"].tolist()
+    )
+    assert deepest_ids_no != deepest_ids_with, "top_n_preserve had no effect"
+    # With preservation: the 10 deepest carry the SubId of each row.
+    for i, (_, row) in enumerate(
+        out_with_preserve.nlargest(10, "Deps_Depth").sort_index().iterrows()
+    ):
+        assert row["Bin_Label"] == f"Bin_{int(row['SubId'])}"
+
+
+def test_bin_handles_nan_depths():
+    """NaN depths are labelled Bin_NA with NaN Binned_Deps. Downstream
+    writers map Bin_NA → DEP_MAX = 0."""
+    gdf = _bin_gdf(sub_ids=[1, 2, 3], depths=[1.0, np.nan, 3.0])
+    out = bin_depression_depths(gdf)
+
+    nan_row = out[out["SubId"] == 2].iloc[0]
+    assert nan_row["Bin_Label"] == "Bin_NA"
+    assert pd.isna(nan_row["Binned_Deps"])
+    # The other rows are unaffected.
+    assert out[out["SubId"] == 1]["Bin_Label"].iloc[0] != "Bin_NA"
+    assert out[out["SubId"] == 3]["Bin_Label"].iloc[0] != "Bin_NA"
+
+
+def test_bin_handles_non_positive_depths_as_nan():
+    """Zero and negative depths are treated the same as NaN — bin_NA,
+    NaN value. (Exponential fit requires positive support.)"""
+    gdf = _bin_gdf(sub_ids=[1, 2, 3, 4], depths=[1.0, 0.0, -0.5, 3.0])
+    out = bin_depression_depths(gdf)
+
+    assert out[out["SubId"] == 2]["Bin_Label"].iloc[0] == "Bin_NA"
+    assert out[out["SubId"] == 3]["Bin_Label"].iloc[0] == "Bin_NA"
+    assert pd.isna(out[out["SubId"] == 2]["Binned_Deps"].iloc[0])
+    assert pd.isna(out[out["SubId"] == 3]["Binned_Deps"].iloc[0])
+
+
+def test_bin_does_not_mutate_input():
+    """The input gdf must be untouched — caller may reuse it."""
+    gdf = _bin_gdf(sub_ids=[1, 2, 3], depths=[1.0, 2.0, 3.0])
+    cols_before = set(gdf.columns)
+
+    bin_depression_depths(gdf)
+
+    assert set(gdf.columns) == cols_before
+    assert "Bin_Label" not in gdf.columns
+    assert "Binned_Deps" not in gdf.columns
+
+
+def test_bin_preserves_row_count():
+    """Output row count equals input row count, no dropping."""
+    n = 80
+    rng = np.random.default_rng(0)
+    gdf = _bin_gdf(
+        sub_ids=range(1, n + 1),
+        depths=rng.exponential(scale=3.0, size=n),
+    )
+    out = bin_depression_depths(gdf)
+    assert len(out) == n
+
+
+def test_bin_all_nan_depths_yields_all_nan_labels():
+    """Pathological all-NaN input: every row is Bin_NA / NaN. Doesn't
+    raise (the exponential fit branch is skipped because n_valid=0)."""
+    gdf = _bin_gdf(sub_ids=[1, 2, 3], depths=[np.nan, np.nan, np.nan])
+    out = bin_depression_depths(gdf)
+    assert (out["Bin_Label"] == "Bin_NA").all()
+    assert out["Binned_Deps"].isna().all()
+
+
+def test_bin_count_capped_at_n_bins_plus_top_n():
+    """Large watershed → unique bin count ≤ n_bins + top_n_preserve.
+    This is the property that justifies the binning workaround (Raven
+    has an implicit cap on land-use class count)."""
+    rng = np.random.default_rng(13)
+    n = 200
+    gdf = _bin_gdf(
+        sub_ids=range(1, n + 1),
+        depths=rng.exponential(scale=5.0, size=n),
+    )
+    out = bin_depression_depths(gdf, n_bins=50, top_n_preserve=10)
+    unique_bins = out["Bin_Label"].nunique()
+    assert unique_bins <= 50 + 10

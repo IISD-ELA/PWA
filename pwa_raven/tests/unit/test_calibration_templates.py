@@ -126,22 +126,32 @@ def test_rvh_template_preserves_static_sections(tmp_path: Path, real_rvh):
 # generate_rvp_template
 # ---------------------------------------------------------------------------
 
-def test_rvp_template_includes_seep_and_dep_placeholders(tmp_path: Path):
+def test_rvp_template_includes_seep_and_bin_placeholders(tmp_path: Path):
+    """The .rvp.tpl now writes per-bin placeholders (e.g. Bin_3_dep)
+    so the calibrator can scale depression depths per bin. LandUseClasses
+    declares each unique bin label (plus Bin_NA, always)."""
     out = generate_rvp_template(
         tmp_path / "templates" / "x.rvp.tpl",
         watershed_name="grassmere",
-        sub_ids=[101, 102],
+        bin_labels=["Bin_3", "Bin_3", "Bin_7"],   # 2 share Bin_3
     )
     content = out.read_text()
-    # Default seep placeholder used for default + per-basin rows
-    assert content.count("seep_fact") >= 3
-    # Per-basin DEP placeholders
-    assert "s101_dep" in content
-    assert "s102_dep" in content
-    # SUB101/102 LandUseClasses entries
-    assert "SUB101" in content
-    assert "SUB102" in content
-    # Static structure preserved
+
+    # Default seep placeholder shows up on the DEFAULT row + each
+    # per-row entry (one per source row).
+    assert content.count("seep_fact") >= 4
+    # Per-bin DEP placeholders, one per unique bin (Bin_3_dep appears
+    # twice because two source rows are in Bin_3; substitution at calib
+    # time updates them both).
+    assert "Bin_3_dep" in content
+    assert "Bin_7_dep" in content
+    # LandUseClasses entries are deduplicated.
+    lu_section = content.split(":LandUseClasses")[1].split(":EndLandUseClasses")[0]
+    assert lu_section.count("Bin_3,") == 1
+    assert lu_section.count("Bin_7,") == 1
+    # Bin_NA sentinel is present (always).
+    assert "Bin_NA" in lu_section
+    # Static structure preserved.
     assert ":SoilClasses" in content
     assert ":EndLandUseParameterList" in content
     assert ":RedirectToFile         channel_properties.rvp" in content
@@ -150,10 +160,32 @@ def test_rvp_template_includes_seep_and_dep_placeholders(tmp_path: Path):
 def test_rvp_template_overrides_seep_placeholder(tmp_path: Path):
     out = generate_rvp_template(
         tmp_path / "x.rvp.tpl",
-        watershed_name="x", sub_ids=[1],
+        watershed_name="x", bin_labels=["Bin_1"],
         seep_placeholder="my_seep",
     )
     assert "my_seep" in out.read_text()
+
+
+def test_rvp_template_normalizes_none_to_bin_na(tmp_path: Path):
+    """None / NaN labels become Bin_NA in both the class declaration
+    and the placeholder name, so the calibrator can target the catch-
+    all bin uniformly."""
+    out = generate_rvp_template(
+        tmp_path / "x.rvp.tpl",
+        watershed_name="x",
+        bin_labels=["Bin_1", None],
+    )
+    content = out.read_text()
+    assert "Bin_NA_dep" in content
+
+
+def test_rvp_template_rejects_empty_bin_labels(tmp_path: Path):
+    """Empty bin_labels is a configuration error — no rows to template."""
+    with pytest.raises(ValueError, match="bin_labels is empty"):
+        generate_rvp_template(
+            tmp_path / "x.rvp.tpl",
+            watershed_name="x", bin_labels=[],
+        )
 
 
 # ---------------------------------------------------------------------------

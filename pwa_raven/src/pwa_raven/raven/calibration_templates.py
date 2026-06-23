@@ -131,21 +131,56 @@ def generate_rvp_template(
     output_path: Path | str,
     *,
     watershed_name: str,
-    sub_ids: list[int],
+    bin_labels: list[str | None],
     channel_props_filename: str = "channel_properties",
     seep_placeholder: str = "seep_fact",
-    dep_placeholder_format: str = "s{sub_id}_dep",
+    dep_placeholder_format: str = "{bin_label}_dep",
     default_dep_max: float = 20.0,
     avg_annual_runoff: float = 75.0,
 ) -> Path:
     """Write the calibration ``.rvp.tpl`` file.
 
-    Differences vs. ``rv_writers.write_rvp``:
-      - ``DEP_SEEP_K`` is the SpotPy placeholder ``seep_fact`` (one shared
-        parameter, calibrated globally) instead of a numeric value.
-      - Per-subbasin ``DEP_MAX`` is the placeholder ``s<subid>_dep``
-        (per-basin parameter) instead of the depression depth.
+    Mirrors ``rv_writers.write_rvp``'s bin-keyed structure but with
+    SpotPy placeholders:
+      - ``DEP_SEEP_K`` is the placeholder ``seep_fact`` (one global
+        parameter, calibrated across all classes).
+      - ``DEP_MAX`` is the placeholder ``{bin_label}_dep`` (e.g.
+        ``Bin_3_dep``, ``Bin_NA_dep``) so the calibrator can scale
+        each bin's depth via ``dep_fact``.
+
+    Note vs. upstream notebook: upstream hard-codes the binned depth
+    values in the template, which effectively disables ``dep_scaling``
+    at calibration time. We keep the placeholder so the per-bin scale
+    knob still works — set ``dep_scaling=False`` on the calibration
+    config to skip the substitution if you specifically want the
+    upstream behaviour.
     """
+    if not bin_labels:
+        raise ValueError("bin_labels is empty; need at least one row to template.")
+
+    def _label(lbl: object) -> str:
+        if lbl is None:
+            return "Bin_NA"
+        try:
+            if pd.isna(lbl):  # type: ignore[arg-type]
+                return "Bin_NA"
+        except (TypeError, ValueError):
+            pass
+        return str(lbl) or "Bin_NA"
+
+    # Unique bin labels for :LandUseClasses — Bin_NA always appended,
+    # matching write_rvp.
+    unique_bins: list[str] = []
+    seen: set[str] = set()
+    for lbl in bin_labels:
+        norm = _label(lbl)
+        if norm == "Bin_NA":
+            continue
+        if norm not in seen:
+            unique_bins.append(norm)
+            seen.add(norm)
+    unique_bins.append("Bin_NA")
+
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -173,8 +208,8 @@ def generate_rvp_template(
         "  :Units,                     fract,                    fract\n",
         "  LandHRU_landuse_class,      0,                        1\n",
     ]
-    for sub_id in sub_ids:
-        parts.append(f"  SUB{sub_id},\t      0,                        1\n")
+    for bin_lbl in unique_bins:
+        parts.append(f"  {bin_lbl},\t      0,                        1\n")
     parts.extend([
         ":EndLandUseClasses\n\n",
         "# Global Parameters-----------------------------\n",
@@ -184,9 +219,16 @@ def generate_rvp_template(
         "  :Units     ,\t       1/d,\t\t     mm\n",
         f"    [DEFAULT],          {seep_placeholder},        {default_dep_max:.3f}\n",
     ])
-    for sub_id in sub_ids:
-        dep_placeholder = dep_placeholder_format.format(sub_id=sub_id)
-        parts.append(f"    SUB{sub_id}   ,\t{seep_placeholder},\t      {dep_placeholder}\n")
+    # One row per source-gdf row, matching write_rvp. Each row's bin
+    # label drives both the class key and the placeholder name; rows
+    # in the same bin share a placeholder so a single substitution
+    # updates them all together.
+    for lbl in bin_labels:
+        norm = _label(lbl)
+        dep_placeholder = dep_placeholder_format.format(bin_label=norm)
+        parts.append(
+            f"    {norm}   ,\t{seep_placeholder},\t      {dep_placeholder}\n"
+        )
     parts.extend([
         ":EndLandUseParameterList\n\n",
         "# redirects to channel properties file\n",
@@ -194,7 +236,10 @@ def generate_rvp_template(
     ])
 
     output_path.write_text("".join(parts))
-    logger.info("Wrote RVP template → %s (%d subbasins)", output_path, len(sub_ids))
+    logger.info(
+        "Wrote RVP template → %s (%d source rows, %d unique bin labels)",
+        output_path, len(bin_labels), len(unique_bins),
+    )
     return output_path
 
 

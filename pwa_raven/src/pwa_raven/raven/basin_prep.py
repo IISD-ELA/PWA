@@ -57,6 +57,145 @@ class WatershedOutlet:
     drainage_area_km2: float
 
 
+def bin_depression_depths(
+    gdf: gpd.GeoDataFrame,
+    *,
+    n_bins: int = 50,
+    top_n_preserve: int = 10,
+    depth_col: str = "Deps_Depth",
+    sub_id_col: str = "SubId",
+) -> gpd.GeoDataFrame:
+    """Add ``Bin_Label`` + ``Binned_Deps`` columns to *gdf*.
+
+    Raven imposes an implicit cap on the number of distinct land-use
+    classes a model can carry. Each subbasin in this routing model has
+    its own depression-depth (``DEP_MAX``) parameter, which historically
+    meant one land-use class per subbasin — fine for the ~63 Grassmere
+    subbasins, but it tips Raven over its limit for larger watersheds
+    (Thomas, 2026-06-19 meeting).
+
+    The workaround (from upstream ``ae706d6``/``e138d9d``) is to bin the
+    depression depths into a fixed pool:
+
+    * **Large watersheds** (``valid_depths > n_bins``): fit an
+      exponential distribution to the depths and split [0,1] into
+      ``n_bins`` quantile-based edges via ``stats.expon.ppf``. Each
+      subbasin's ``Binned_Deps`` is the mean of valid depths within
+      its bin; ``Bin_Label`` is ``Bin_<idx>`` where ``idx ∈ [0,n_bins)``.
+    * **Small watersheds** (``valid_depths ≤ n_bins``): 1:1 fallback.
+      Each subbasin is its own bin with ``Bin_Label = Bin_<SubId>`` and
+      ``Binned_Deps`` = raw depth (no information loss).
+    * **Top-N preservation**: the ``top_n_preserve`` deepest subbasins
+      always keep their raw depths and a ``Bin_<SubId>`` label, even on
+      the large-watershed path. This preserves the extreme depressions
+      that drive runoff retention without collapsing them into a bin.
+    * **NaN / non-positive depths**: rows with NaN or ``<= 0`` depths
+      get ``Bin_Label = Bin_NA``, ``Binned_Deps = NaN``. Downstream
+      writers should treat these as ``DEP_MAX = 0``.
+
+    Parameters
+    ----------
+    gdf
+        Subbasins GeoDataFrame with at minimum ``depth_col`` and
+        ``sub_id_col`` columns.
+    n_bins
+        Target bin count for the large-watershed path. Default 50.
+    top_n_preserve
+        Number of deepest subbasins to exempt from binning. Default 10.
+        Set to 0 to disable.
+    depth_col, sub_id_col
+        Column names for the depression depth and subbasin ID.
+
+    Returns
+    -------
+    A copy of *gdf* with ``Bin_Label`` (str) and ``Binned_Deps`` (float)
+    columns appended. The input is not mutated.
+    """
+    from scipy import stats  # local import keeps the module-level deps light
+
+    out = gdf.copy()
+    out["Binned_Deps"] = np.nan
+    out["Bin_Label"] = pd.Series([None] * len(out), index=out.index, dtype=object)
+
+    depths = out[depth_col].to_numpy(dtype=float)
+    valid_mask = ~np.isnan(depths) & (depths > 0)
+    valid_depths = depths[valid_mask]
+    n_valid = len(valid_depths)
+
+    if n_valid > n_bins:
+        # ---- Large-watershed path: exponential bins -----------------
+        # Matches the notebook: fit, PPF on n_bins+1 quantiles, mean per bin.
+        exp_loc, exp_scale = stats.expon.fit(valid_depths)
+        quantiles = np.linspace(0.0, 1.0, n_bins + 1)
+        edges = stats.expon.ppf(quantiles, loc=exp_loc, scale=exp_scale)
+        # PPF(1.0) is +inf for an exponential — clamp to data max with a
+        # small epsilon so the last bin's upper edge is closed.
+        edges[-1] = float(valid_depths.max()) * 1.0 + 1e-9
+        edges[0] = float(valid_depths.min())
+
+        # Per-bin mean (midpoint if no data falls in a bin).
+        bin_means: list[float] = []
+        for i in range(n_bins):
+            lo, hi = edges[i], edges[i + 1]
+            if i == n_bins - 1:
+                mask = (valid_depths >= lo) & (valid_depths <= hi)
+            else:
+                mask = (valid_depths >= lo) & (valid_depths < hi)
+            bin_means.append(
+                float(valid_depths[mask].mean()) if mask.any() else float((lo + hi) / 2)
+            )
+
+        # Assign each row to a bin (skip non-positive / NaN — left as
+        # Bin_NA / NaN below).
+        for idx in out.index:
+            depth_val = float(out.at[idx, depth_col]) if pd.notna(out.at[idx, depth_col]) else float("nan")
+            if np.isnan(depth_val) or depth_val <= 0:
+                continue
+            for bin_idx in range(n_bins):
+                lo, hi = edges[bin_idx], edges[bin_idx + 1]
+                in_bin = (
+                    (lo <= depth_val <= hi) if bin_idx == n_bins - 1
+                    else (lo <= depth_val < hi)
+                )
+                if in_bin:
+                    out.at[idx, "Binned_Deps"] = bin_means[bin_idx]
+                    out.at[idx, "Bin_Label"] = f"Bin_{bin_idx}"
+                    break
+    else:
+        # ---- Small-watershed path: 1:1 fallback ---------------------
+        # Each subbasin is its own bin. No information loss; subbasin
+        # count IS the parameter count, which is by definition < n_bins.
+        for idx in out.index:
+            depth_val = out.at[idx, depth_col]
+            if pd.isna(depth_val) or depth_val <= 0:
+                continue
+            sub_id = int(out.at[idx, sub_id_col])
+            out.at[idx, "Binned_Deps"] = float(depth_val)
+            out.at[idx, "Bin_Label"] = f"Bin_{sub_id}"
+
+    # ---- Top-N preservation -----------------------------------------
+    # Deepest subbasins get their raw depth back + a per-subbasin label,
+    # overriding any binning assignment above. On the 1:1 fallback path
+    # this is a no-op (labels are already Bin_<SubId>).
+    if top_n_preserve > 0 and n_valid > 0:
+        valid_idx = out.index[valid_mask]
+        top_idx = out.loc[valid_idx, depth_col].nlargest(top_n_preserve).index
+        for idx in top_idx:
+            out.at[idx, "Binned_Deps"] = float(out.at[idx, depth_col])
+            out.at[idx, "Bin_Label"] = f"Bin_{int(out.at[idx, sub_id_col])}"
+
+    # ---- NaN / non-positive depths get the sentinel label -----------
+    invalid_idx = out.index[~valid_mask]
+    out.loc[invalid_idx, "Bin_Label"] = "Bin_NA"
+    # Binned_Deps stays NaN; downstream writers should map Bin_NA → 0.
+
+    logger.info(
+        "Binned depression depths: %d subbasins → %d unique bins (n_bins=%d, top_n_preserve=%d)",
+        len(out), out["Bin_Label"].nunique(dropna=False), n_bins, top_n_preserve,
+    )
+    return out
+
+
 def filter_contributing_basins(
     gdf: gpd.GeoDataFrame,
     *,
@@ -209,9 +348,13 @@ def prepare_basin_attributes(
     gdf: gpd.GeoDataFrame,
     curve_number: float,
 ) -> PreparedBasinAttributes:
-    """End-to-end: filter, compute TC/TTP, sanitize, identify outlet."""
+    """End-to-end: filter, compute TC/TTP, bin depression depths, sanitize, identify outlet."""
     filtered = filter_contributing_basins(gdf)
     enriched = compute_time_of_concentration(filtered, curve_number)
+    # Bin depression depths so write_rvp/write_rvh can key on Bin_Label
+    # instead of per-subbasin (Raven imposes an implicit cap on distinct
+    # land-use classes — see bin_depression_depths docstring).
+    enriched = bin_depression_depths(enriched)
 
     sub_ids = [int(x) for x in enriched["SubId"]]
     riv_lengths_mod, riv_lengths_mod_n = sanitize_river_lengths(
