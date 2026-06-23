@@ -472,8 +472,8 @@ def run_raven_inputs(config: RavenInputsConfig) -> RavenInputsResult:
     rvp = write_rvp(
         config.processed_dir,
         watershed_name=config.watershed_name,
-        sub_ids=prep.sub_ids,
-        deps_depths=list(enriched["Deps_Depth"]),
+        bin_labels=list(enriched["Bin_Label"]),
+        binned_deps=list(enriched["Binned_Deps"]),
         avg_annual_runoff=config.avg_annual_runoff_mm,
     )
     model_rvt = write_model_rvt(
@@ -499,6 +499,7 @@ def run_raven_inputs(config: RavenInputsConfig) -> RavenInputsResult:
         aspect=list(enriched["BasAspect"]),
         time_of_conc=list(enriched["time_of_conc"]),
         time_to_peak=list(enriched["time_to_peak"]),
+        bin_labels=list(enriched["Bin_Label"]),
     )
     channel_rvp = write_channel_rvp(
         config.processed_dir,

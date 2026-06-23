@@ -22,6 +22,8 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
+import pandas as pd
+
 logger = logging.getLogger(__name__)
 
 
@@ -122,22 +124,69 @@ def write_rvp(
     output_dir: Path | str,
     *,
     watershed_name: str,
-    sub_ids: list[int],
-    deps_depths: list[float],
+    bin_labels: list[str | None],
+    binned_deps: list[float],
     avg_annual_runoff: float = 75.0,
     default_dep_seep_k: float = 0.01,
     default_dep_max: float = 20.0,
 ) -> Path:
     """Write the ``.rvp`` soil/vegetation/land-use class definition file.
 
-    Per-subbasin entries are written for both the LandUseClasses table
-    (with depression depth as DEP_MAX) and the LandUseParameterList.
+    Per-bin entries are written for the ``:LandUseClasses`` table (one
+    class per unique bin label plus a ``Bin_NA`` sentinel), and one
+    ``:LandUseParameterList`` row per input element (per subbasin in
+    the source gdf — duplicate bin labels are allowed and Raven
+    tolerates them as parameter-override redundancy, matching upstream
+    ``ae706d6`` / ``e138d9d`` exactly).
+
+    Parameters
+    ----------
+    bin_labels
+        Bin label for each subbasin in source order. ``None`` and
+        non-string values (NaN) are mapped to ``"Bin_NA"`` on write.
+    binned_deps
+        Binned depression depth for each subbasin in source order.
+        NaN is written as ``0.0`` (Raven's no-depression value).
     """
-    if len(sub_ids) != len(deps_depths):
+    if len(bin_labels) != len(binned_deps):
         raise ValueError(
-            f"sub_ids ({len(sub_ids)}) and deps_depths ({len(deps_depths)}) "
+            f"bin_labels ({len(bin_labels)}) and binned_deps ({len(binned_deps)}) "
             f"must have the same length."
         )
+
+    def _label(lbl: object) -> str:
+        """Normalize labels: None, NaN, '' → 'Bin_NA'."""
+        if lbl is None:
+            return "Bin_NA"
+        try:
+            if pd.isna(lbl):  # type: ignore[arg-type]
+                return "Bin_NA"
+        except (TypeError, ValueError):
+            pass
+        return str(lbl) or "Bin_NA"
+
+    def _depth(d: float) -> float:
+        try:
+            if pd.isna(d):
+                return 0.0
+        except (TypeError, ValueError):
+            pass
+        return float(d)
+
+    # Unique bin labels (preserve first-occurrence order) — drives the
+    # :LandUseClasses table. Bin_NA is appended unconditionally to
+    # match upstream (the writer always reserves a class for NaN rows
+    # even when no NaN rows are present in this run).
+    unique_bins: list[str] = []
+    seen: set[str] = set()
+    for lbl in bin_labels:
+        norm = _label(lbl)
+        if norm == "Bin_NA":
+            continue  # appended at the end regardless
+        if norm not in seen:
+            unique_bins.append(norm)
+            seen.add(norm)
+    unique_bins.append("Bin_NA")
 
     output_dir = Path(output_dir)
     out = output_dir / f"{_sanitize_watershed_name(watershed_name)}.rvp"
@@ -170,8 +219,8 @@ def write_rvp(
   :Units,                     fract,                    fract
   LandHRU_landuse_class,      0,                        1"""]
 
-    for sub_id in sub_ids:
-        parts.append(f"\n  SUB{sub_id},              0,                        1")
+    for bin_lbl in unique_bins:
+        parts.append(f"\n  {bin_lbl},              0,                        1")
 
     parts.append(f"""
 :EndLandUseClasses
@@ -184,8 +233,10 @@ def write_rvp(
   :Units          ,               1/d,                   mm
     [DEFAULT]     ,             {default_dep_seep_k},              {default_dep_max:.4f}""")
 
-    for sub_id, depth in zip(sub_ids, deps_depths):
-        parts.append(f"\n SUB{sub_id:<12},             {default_dep_seep_k},          {depth:.4f}")
+    for lbl, depth in zip(bin_labels, binned_deps):
+        parts.append(
+            f"\n {_label(lbl):<12},             {default_dep_seep_k},          {_depth(depth):.4f}"
+        )
 
     parts.append("""
 :EndLandUseClasses
@@ -195,7 +246,10 @@ def write_rvp(
 """)
 
     out.write_text("".join(parts))
-    logger.info("Wrote RVP → %s (%d subbasins)", out, len(sub_ids))
+    logger.info(
+        "Wrote RVP → %s (%d subbasins, %d unique bin labels)",
+        out, len(bin_labels), len(unique_bins),
+    )
     return out
 
 
@@ -278,8 +332,15 @@ def write_rvh(
     aspect: list[float],
     time_of_conc: list[float],
     time_to_peak: list[float],
+    bin_labels: list[str | None] | None = None,
 ) -> Path:
-    """Write the ``.rvh`` SubBasin / HRU / SubBasinProperties file."""
+    """Write the ``.rvh`` SubBasin / HRU / SubBasinProperties file.
+
+    When *bin_labels* is given, each HRU row's ``LAND_USE_CLASS`` is
+    the row's bin label (mapped to ``Bin_NA`` for None/NaN). When
+    omitted, every HRU defaults to ``LandHRU_landuse_class`` — kept
+    for back-compat with callers that haven't migrated to binning yet.
+    """
     n = len(sub_ids)
     for label, lst in [
         ("dow_sub_ids", dow_sub_ids), ("riv_lengths_mod", riv_lengths_mod),
@@ -294,6 +355,10 @@ def write_rvh(
                 f"All per-basin lists must have length {n} (sub_ids); "
                 f"{label} has length {len(lst)}."
             )
+    if bin_labels is not None and len(bin_labels) != n:
+        raise ValueError(
+            f"bin_labels must have length {n} (sub_ids); got {len(bin_labels)}."
+        )
 
     output_dir = Path(output_dir)
     out = output_dir / f"{_sanitize_watershed_name(watershed_name)}.rvh"
@@ -357,6 +422,21 @@ def write_rvh(
         "none                none             none               none              deg       degN\n"
     )
 
+    def _hru_land_use(i: int) -> str:
+        """Per-row LAND_USE_CLASS: row's bin label when binning is in
+        play, otherwise the legacy single-class default."""
+        if bin_labels is None:
+            return "LandHRU_landuse_class"
+        lbl = bin_labels[i]
+        if lbl is None:
+            return "Bin_NA"
+        try:
+            if pd.isna(lbl):  # type: ignore[arg-type]
+                return "Bin_NA"
+        except (TypeError, ValueError):
+            pass
+        return str(lbl) or "Bin_NA"
+
     for i in range(n):
         sub_id = sub_ids[i]
         parts.append(
@@ -366,7 +446,7 @@ def write_rvh(
             f"{round(latitude[i], 6):>15}"
             f"{round(longitude[i], 6):>15}"
             f"{sub_id:>15}"
-            f"{'LandHRU_landuse_class':>30}"
+            f"{_hru_land_use(i):>30}"
             f"{'LandHRU_vege_class':>25}"
             f"{'LandHRU_soil_profile':>30}"
             f"{'[NONE]':>10}"

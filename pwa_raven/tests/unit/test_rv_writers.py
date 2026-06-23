@@ -75,34 +75,82 @@ def test_write_rvc_overrides_initial_storage(tmp_path: Path):
 # RVP
 # ---------------------------------------------------------------------------
 
-def test_write_rvp_emits_per_subbasin_landuse_and_params(tmp_path: Path):
+def test_write_rvp_emits_per_bin_landuse_and_params(tmp_path: Path):
+    """LandUseClasses is keyed by unique bin labels; LandUseParameterList
+    has one row per source subbasin (per the upstream binning design —
+    duplicate bin labels are tolerated as parameter-override redundancy)."""
     out = write_rvp(
         tmp_path,
         watershed_name="grassmere",
-        sub_ids=[101, 102, 103],
-        deps_depths=[12.5, 8.7, 0.0],
+        bin_labels=["Bin_3", "Bin_3", "Bin_7"],   # two subbasins share Bin_3
+        binned_deps=[5.0, 5.0, 8.7],
     )
     content = out.read_text()
 
-    # LandUseClasses table has SUB101/102/103 entries
-    assert "SUB101,              0,                        1" in content
-    assert "SUB102,              0,                        1" in content
-    # LandUseParameterList has DEP_MAX = depression depth per basin
-    assert "SUB101" in content and "12.5000" in content
-    assert "SUB103" in content and "0.0000" in content
-    # Rows are individual lines and align under :LandUseParameterList
+    # LandUseClasses: unique bins + Bin_NA sentinel (always appended).
+    lu_section = content.split(":LandUseClasses")[1].split(":EndLandUseClasses")[0]
+    assert "Bin_3,              0,                        1" in lu_section
+    assert "Bin_7,              0,                        1" in lu_section
+    assert "Bin_NA,              0,                        1" in lu_section
+    # Bin_3 appears once in LandUseClasses (deduplicated), even though
+    # two subbasins share that label.
+    assert lu_section.count("Bin_3,") == 1
+
+    # LandUseParameterList: one row per source subbasin — Bin_3 appears
+    # twice with the shared 5.0 depth.
     pl_section = content.split(":LandUseParameterList")[1]
-    assert "SUB101" in pl_section and "12.5000" in pl_section
-    assert "SUB102" in pl_section and "8.7000" in pl_section
-    # Static structure preserved
+    bin3_rows = [ln for ln in pl_section.splitlines() if "Bin_3" in ln]
+    assert len(bin3_rows) == 2
+    assert all("5.0000" in row for row in bin3_rows)
+    bin7_rows = [ln for ln in pl_section.splitlines() if "Bin_7" in ln]
+    assert len(bin7_rows) == 1
+    assert "8.7000" in bin7_rows[0]
+
+    # Static structure preserved.
     assert ":SoilClasses" in content
     assert ":AvgAnnualRunoff        75" in content
     assert ":RedirectToFile         channel_properties.rvp" in content
 
 
+def test_write_rvp_normalizes_nan_to_bin_na(tmp_path: Path):
+    """NaN labels or depths get mapped to Bin_NA / 0.0 on write —
+    matches upstream's per-row write that falls back to Bin_NA for
+    rows with NaN Deps_Depth."""
+    import numpy as np
+    out = write_rvp(
+        tmp_path,
+        watershed_name="ws",
+        bin_labels=["Bin_1", None, "Bin_2"],
+        binned_deps=[1.5, np.nan, 2.5],
+    )
+    content = out.read_text()
+
+    pl_section = content.split(":LandUseParameterList")[1]
+    # The None label normalizes to Bin_NA with depth 0.
+    bin_na_rows = [ln for ln in pl_section.splitlines() if "Bin_NA" in ln]
+    assert len(bin_na_rows) == 1
+    assert "0.0000" in bin_na_rows[0]
+
+
+def test_write_rvp_bin_na_in_landuse_classes_even_without_nan_rows(tmp_path: Path):
+    """LandUseClasses always includes a Bin_NA entry even when no row
+    in the input is NaN. Upstream reserves the class unconditionally."""
+    out = write_rvp(
+        tmp_path,
+        watershed_name="ws",
+        bin_labels=["Bin_1", "Bin_2"],
+        binned_deps=[1.0, 2.0],
+    )
+    lu_section = out.read_text().split(":LandUseClasses")[1].split(":EndLandUseClasses")[0]
+    assert "Bin_NA," in lu_section
+
+
 def test_write_rvp_rejects_mismatched_lengths(tmp_path: Path):
     with pytest.raises(ValueError, match="must have the same length"):
-        write_rvp(tmp_path, watershed_name="x", sub_ids=[1, 2], deps_depths=[1.0])
+        write_rvp(
+            tmp_path, watershed_name="x",
+            bin_labels=["Bin_1", "Bin_2"], binned_deps=[1.0],
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -192,6 +240,44 @@ def test_write_rvh_rejects_mismatched_lengths(tmp_path: Path, rvh_inputs):
     bad = {**rvh_inputs, "elevation": [1.0]}    # too short
     with pytest.raises(ValueError, match="elevation"):
         write_rvh(tmp_path, watershed_name="x", **bad)
+
+
+def test_write_rvh_uses_bin_labels_for_hru_land_use_class(tmp_path: Path, rvh_inputs):
+    """When bin_labels is provided, each HRU's LAND_USE_CLASS column
+    is the row's bin label — required so the .rvh references match the
+    bin-keyed classes declared by write_rvp. NaN/None labels become
+    Bin_NA."""
+    out = write_rvh(
+        tmp_path, watershed_name="grassmere",
+        bin_labels=["Bin_3", None],
+        **rvh_inputs,
+    )
+    content = out.read_text()
+    # The HRU rows are below the :HRUs marker.
+    hru_section = content.split(":HRUs")[1].split(":EndHRUs")[0]
+    assert "Bin_3" in hru_section
+    assert "Bin_NA" in hru_section
+    # The legacy default class must NOT appear in HRU rows when bin
+    # labels are provided.
+    assert "LandHRU_landuse_class" not in hru_section
+
+
+def test_write_rvh_omits_bin_labels_falls_back_to_legacy_default(tmp_path: Path, rvh_inputs):
+    """No bin_labels → every HRU defaults to LandHRU_landuse_class.
+    Preserves back-compat for callers that haven't migrated."""
+    out = write_rvh(tmp_path, watershed_name="x", **rvh_inputs)
+    hru_section = out.read_text().split(":HRUs")[1].split(":EndHRUs")[0]
+    assert "LandHRU_landuse_class" in hru_section
+    assert "Bin_" not in hru_section
+
+
+def test_write_rvh_rejects_mismatched_bin_labels_length(tmp_path: Path, rvh_inputs):
+    with pytest.raises(ValueError, match="bin_labels"):
+        write_rvh(
+            tmp_path, watershed_name="x",
+            bin_labels=["Bin_3"],   # only one — should be two
+            **rvh_inputs,
+        )
 
 
 # ---------------------------------------------------------------------------
