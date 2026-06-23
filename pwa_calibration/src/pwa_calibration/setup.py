@@ -511,11 +511,21 @@ def load_calibration_inputs(config: CalibrationConfig) -> CalibrationInputs:
     # Multiple subbasins may share a bin (same Binned_Deps); dict
     # construction collapses them naturally — keys are unique bin
     # labels and the value is each bin's binned depth.
-    deps_dict: dict = {
-        str(row["Bin_Label"]): float(row["Binned_Deps"])
-        for _, row in deps_gdf.iterrows()
-        if pd.notna(row["Bin_Label"]) and pd.notna(row["Binned_Deps"])
-    }
+    #
+    # NaN Binned_Deps (emitted by bin_depression_depths for rows with
+    # NaN/<=0 Deps_Depth, labelled "Bin_NA") must still produce a dict
+    # entry — the .rvp.tpl carries a Bin_NA_dep placeholder per row,
+    # and rvp_update needs a value for every placeholder it sees or
+    # the literal token survives into the .rvp DEP_MAX numeric field
+    # and Raven aborts with a parse error. Map NaN to 0.0 (Raven's
+    # no-depression value).
+    deps_dict: dict = {}
+    for _, row in deps_gdf.iterrows():
+        label = row["Bin_Label"]
+        if not pd.notna(label):
+            continue
+        depth = row["Binned_Deps"]
+        deps_dict[str(label)] = 0.0 if not pd.notna(depth) else float(depth)
 
     return CalibrationInputs(
         outlet=outlet,

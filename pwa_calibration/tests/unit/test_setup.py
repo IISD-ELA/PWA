@@ -299,6 +299,89 @@ def test_load_calibration_inputs_round_trip(tmp_path: Path):
     assert inputs.qrefs == {101: 1.1, 102: 2.2}
 
 
+def test_load_calibration_inputs_includes_bin_na_for_nan_depths(tmp_path: Path):
+    """Cross-seam regression: bin_depression_depths labels NaN/<=0
+    depths as ``"Bin_NA"`` (with NaN Binned_Deps) and the .rvp.tpl
+    contains a ``Bin_NA_dep`` placeholder per row, but the deps dict
+    used by ``RavenFile.rvp_update`` must include a ``"Bin_NA"`` key
+    too — otherwise the placeholder survives the substitution loop
+    and Raven aborts trying to parse the literal string as DEP_MAX.
+
+    Production trigger: any watershed with a subbasin whose
+    ``Deps_Depth`` is NaN or ≤ 0 (small upland subbasins, missing
+    data, lake catchments that survived the contributing filter)."""
+    import numpy as np
+    input_dir = tmp_path / "input"
+    input_dir.mkdir(parents=True, exist_ok=True)
+    (input_dir / "watershed_test_WSC_outlet.txt").write_text("875\n")
+    pd.DataFrame(
+        {"SubId": [101, 102, 103], "Aspect_Ratio": [0.5, 0.7, 0.9]}
+    ).to_csv(input_dir / "aspect_ratios.csv", index=False)
+    pd.DataFrame(
+        {"HRU": [1, 2, 3], "AREA": [10.0, 20.0, 30.0]}
+    ).to_csv(input_dir / "watershed_test_HRU_areas.csv", index=False)
+    pd.DataFrame(
+        {"SubId": [101, 102], "tp": [1.5, 2.0], "tc": [3.0, 4.0]}
+    ).to_csv(input_dir / "watershed_test_tp_tc.csv", index=False)
+    # Shapefile carries a NaN depth on SubId 103 — the seam-triggering case.
+    deps_gdf = gpd.GeoDataFrame(
+        {
+            "SubId": [101, 102, 103],
+            "Deps_Depth": [0.25, 0.30, np.nan],
+            "Q_Mean": [1.1, 2.2, 3.3],
+            "geometry": [Point(0, 0), Point(1, 1), Point(2, 2)],
+        },
+        crs="EPSG:4326",
+    )
+    deps_gdf.to_file(input_dir / "CLRH_basins_depression_depths.shp")
+
+    cfg = CalibrationConfig(model_name="watershed_test", calib_dir=tmp_path)
+    inputs = load_calibration_inputs(cfg)
+
+    # Bin_NA must be present so rvp_update can substitute its placeholder.
+    # Map to 0.0 (Raven's no-depression value) since the underlying
+    # Binned_Deps is NaN.
+    assert "Bin_NA" in inputs.deps
+    assert inputs.deps["Bin_NA"] == 0.0
+    # The two valid rows should still be keyed by Bin_<SubId> (1:1
+    # fallback, since the watershed has < 50 subbasins).
+    assert inputs.deps["Bin_101"] == 0.25
+    assert inputs.deps["Bin_102"] == 0.30
+
+
+def test_rvp_update_raises_on_unsubstituted_dep_placeholder(tmp_path: Path):
+    """Defence-in-depth: even if the deps dict is incomplete (e.g.
+    bin_depression_depths emitted a Bin_X label that load_calibration_
+    inputs filtered out), rvp_update must NOT silently write a literal
+    placeholder string into the .rvp's DEP_MAX numeric field. Raven
+    would abort with a parse error far from the real cause.
+
+    This test goes red until rvp_update gains a "no unsubstituted
+    _dep tokens remain" guard."""
+    from pwa_raven.raven.files import RavenFile
+
+    # Build a minimal template that contains a placeholder for which
+    # the caller deliberately doesn't supply a value.
+    tpl_dir = tmp_path / "templates"
+    tpl_dir.mkdir()
+    (tpl_dir / "model.rvp.tpl").write_text(
+        ":Bedslope\t\t\t 0.001000\n"
+        "seep_fact\n"
+        "Bin_3_dep\n"        # provided in _deps
+        "Bin_NA_dep\n"       # NOT provided — this is the bug we're guarding
+    )
+    rf = RavenFile("model", calib_dir=tmp_path, extension="rvp")
+
+    with pytest.raises(ValueError, match="unsubstituted .*_dep"):
+        rf.rvp_update(
+            "no_split",
+            _dep_scale=True,
+            _param_vector={"seep_k": 0.05, "dep_fact": 1.0, "bedslope_mult": 1.0},
+            _deps={"Bin_3": 10.0},   # Bin_NA omitted on purpose
+            _channel_scale=True,
+        )
+
+
 def test_load_calibration_inputs_uses_pathlib_not_backslashes(tmp_path: Path):
     """The loader must work on macOS/Linux. The original built paths
     with literal backslashes (``calib_dir + "\\input\\..."``) which
