@@ -1,0 +1,62 @@
+name: tests
+
+on:
+  push:
+    branches: ["master", "dev", "ci/**"]
+  pull_request:
+    branches: ["master", "dev"]
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pwa-raven:
+    name: pwa-raven unit tests (py3.11)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: pwa_raven
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pwa_raven/pyproject.toml
+
+      - name: Install pwa-raven (with dev extras)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run unit tests
+        run: pytest tests/unit -m "not integration and not regression and not slow"
+
+  pwa-calibration:
+    name: pwa-calibration unit tests (py3.11)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pwa_calibration/pyproject.toml
+
+      - name: Install pwa-raven first (local path dependency)
+        # pwa-calibration depends on pwa-raven, which is not on PyPI yet —
+        # it lives in this same repo. Install it editable from the sibling
+        # directory so the dependency resolves locally.
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ./pwa_raven
+
+      - name: Install pwa-calibration (with dev extras)
+        run: pip install -e ./pwa_calibration[dev]
+
+      - name: Run unit tests
+        working-directory: pwa_calibration
+        run: pytest tests/unit -m "not integration and not regression and not slow"
