@@ -49,4 +49,5 @@ addopts = [
 markers = [
     "regression: tests requiring real watershed data",
     "integration: tests that invoke Raven, MPI, or other external binaries",
+    "slow: tests taking more than ~30 seconds (e.g. a real calibration run)",
 ]
