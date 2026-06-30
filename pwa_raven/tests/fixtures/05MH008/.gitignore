@@ -1,0 +1,10 @@
+# Committed test-watershed fixture (05MH008). The repo-root .gitignore excludes
+# geospatial formats (*.shp, *.dbf, ...) globally to keep working data out of
+# git; this fixture is the deliberate exception, so re-include those formats
+# for this directory only.
+!*.shp
+!*.shx
+!*.dbf
+!*.prj
+!*.cpg
+!*.geojson
