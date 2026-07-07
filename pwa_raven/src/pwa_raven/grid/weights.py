@@ -218,12 +218,26 @@ def generate_grid_weights(
     Convenience wrapper combining :func:`compute_subbasin_to_grid_mapping` and
     :func:`write_grid_weights_file` for use from a notebook or runner script.
 
+    Non-contributing lake catchments (``Lake_Cat >= 2``) are filtered
+    out of the subbasins layer before computing the mapping — they
+    don't route water in Raven and including them in GridWeights.txt
+    forces the model to read forcing for cells that Step 2 later
+    drops, causing forcing/coverage mismatches. The filter is a no-op
+    on layers without a ``Lake_Cat`` column (some watersheds publish
+    pre-filtered subbasins).
+
     If *n_grid_cells* is None, defaults to ``len(hybas_map)`` — the number
     of basins in the subset, which equals the cell count of the subset
     forcing NetCDF Raven reads. (It is NOT ``len(phydap)``: that is the
     full prairie grid, and writing it makes Raven reject the forcing file.)
     """
+    # Local import to avoid a hard dependency from grid → raven and to
+    # keep the helper's home in basin_prep where the column convention lives.
+    from pwa_raven.raven.basin_prep import filter_contributing_basins
+
     subbasins = gpd.read_file(str(subbasins_shp))
+    if "Lake_Cat" in subbasins.columns:
+        subbasins = filter_contributing_basins(subbasins)
     phydap = gpd.read_file(str(phydap_shp))
     hybas_map = pd.read_csv(str(hybas_map_csv))
 

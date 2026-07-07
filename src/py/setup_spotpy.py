@@ -49,7 +49,8 @@ class spot_setup_rvn(object):
     
     def __init__(self, model_name, calib_dir, obj_fn = "kge_adj", 
                  split_areas = "None", spring_eval = True, 
-                 low_seep = False, routing = False, dep_scaling = False, runoff_scaling = False, channel_scaling = False, phydap_adj = True, mpi_cores = 0):
+                 low_seep = False, routing = False, dep_scaling = False, runoff_scaling = False, channel_scaling = False, phydap_adj = False,  
+                 mpi_cores = 0, tt_split_freq = 4, event_based = True):
         """
         Initialize the calibration setup.
 
@@ -62,11 +63,25 @@ class spot_setup_rvn(object):
         if calib_dir[-1] == '/':
             calib_dir = calib_dir[:-1]
 
+        self.start_year = 1983
+        self.end_year = 2018
+
+        if tt_split_freq > 1:
+            model_years = np.array(range(self.start_year, self.end_year))
+            test_years = model_years[::tt_split_freq]
+            self.train_years = model_years[~np.isin(model_years, test_years)]
+
+        else:
+            self.train_years = np.array(range(self.start_year + 5, self.end_year)) # keep 5 years of test data at the start of the model period.
+            print("Keeping 5 years at start of the model period for testing. Training years are: ", self.train_years[:10], "...")
+
+              # All years for training
         self.model_name = model_name
         self.dep_scale = dep_scaling
         self.runoff_scale = runoff_scaling
         self.channel_scale = channel_scaling
         self.phydap_adj = phydap_adj
+        self.event_based = event_based
         
         #-------------------------load subbasin ID for outlet-------------------------
         wsc_outlet_subid_path = calib_dir + f"\\input\\{self.model_name}_WSC_outlet.txt"
@@ -179,7 +194,7 @@ class spot_setup_rvn(object):
         self.param_distributions = []
 
         if self.dep_scale:
-            self.param_distributions.append(sp.parameter.Uniform("dep_fact", low=0.10, high=1.00, optguess = 0.5))
+            self.param_distributions.append(sp.parameter.Uniform("dep_fact", low=0.4, high=1.2, optguess = 0.8))
 
         self.param_distributions.append(sp.parameter.Uniform("seep_k", low=0.005, high=seep_max, optguess=seep_opt))
 
@@ -226,7 +241,7 @@ class spot_setup_rvn(object):
 
         if routing:
             self.param_distributions.append(sp.parameter.Uniform("tc_tp_fact", low=1.4, high=3.0))
-            self.param_distributions.append(sp.parameter.Uniform("t_peak_fact", low=0.4, high=1.2))
+            self.param_distributions.append(sp.parameter.Uniform("t_peak_fact", low=0.2, high=5.0))
             self.param_distributions.append(sp.parameter.Uniform("qref_scale", low=0.5, high=2.0))
         
         if self.channel_scale:
@@ -340,12 +355,14 @@ class spot_setup_rvn(object):
 
         sim_hydrograph = rv.RavenHydrograph((sim_dir))
 
+        print("Reading data from the following training years: ", self.train_years[:10], "...")
+
         # Return the simulated discharge time series for the specified subbasin
-        sim = sim_hydrograph.read_sim(subbasin_id, start_yr=1995, end_yr=2010, spring_only = self.spring_eval, refresh=True).reset_index(drop=True)
+        sim = sim_hydrograph.read_sim(subbasin_id, years=self.train_years, spring_only = self.spring_eval, refresh=True)
         # sim_2003 = sim.loc[sim["date"].year >= 2003]
 
         # read output
-        obs = sim_hydrograph.read_obs(start_yr=1995, end_yr=2010, spring_only = self.spring_eval, refresh=True).reset_index(drop=True)
+        obs = sim_hydrograph.read_obs(years=self.train_years, spring_only = self.spring_eval, refresh=True)
 
         # Calculate the objective function value to assess model performance.
 
@@ -363,7 +380,7 @@ class spot_setup_rvn(object):
             print("Simulation length:", len(sim), "different than observation length", len(obs), flush=True)
             raise ValueError("Simulation and evaluation data must have the same length.")
 
-        non_null = obs.notnull()
+        non_null = obs.notnull() & sim.notnull()
 
         valid_sim = sim[non_null]
         valid_eval = obs[non_null]
@@ -373,6 +390,64 @@ class spot_setup_rvn(object):
 
         # Calculate NSE
         # NSE is already adjusted in the built-in spotpy function
+
+        if self.event_based :
+
+            def calculate_center_of_mass(df, year):
+                """
+                Calculate the center of mass for a given DataFrame.
+                
+                Parameters:
+                df (pd.DataFrame): The input DataFrame containing the date and value columns.
+                year (int): The year for which to calculate the center of mass.
+                
+                Returns:
+                pd.Timestamp: The center of mass date.
+                """
+
+                annual_df = df[df.index.year == year]
+                # Ensure the date column is in datetime format
+                # annual_df[date_col] = pd.to_datetime(annual_df[date_col])
+
+                date_col = annual_df.index  # Assuming the first column is the date column
+                value_col = annual_df.values  # Assuming the second column is the value column
+
+                # Calculate the total mass (sum of values)
+                total_mass = value_col[~pd.isna(value_col)].sum()
+
+                median_mass = total_mass / 2
+
+                # Calculate the weighted sum of dates
+                cum_sum = pd.Series(value_col.cumsum())
+
+                com_idx = cum_sum[cum_sum >= median_mass].index[0]
+                com = date_col[com_idx]
+
+                return com
+
+            def calculate_lag(obs, sim, year):
+                com_obs = calculate_center_of_mass(obs, year)
+                com_sim = calculate_center_of_mass(sim, year)
+                lag = (com_obs - com_sim).days
+                return lag
+
+            yearly_lags = {}
+            for year in self.train_years:
+                lag = calculate_lag(valid_eval, valid_sim, year)
+                yearly_lags[year] = lag
+                print(f"Lag for year {year}: {lag} days")
+            
+            shifted_obs = pd.Series(dtype="float64")
+
+            for year, lag in yearly_lags.items():
+                valid_obs_year = valid_eval[valid_eval.index.year == year]
+                shifted_obs_year = valid_obs_year.shift(-lag)
+                shifted_obs = pd.concat([shifted_obs, shifted_obs_year])
+            
+            non_null = shifted_obs.notnull() & valid_sim.notnull()
+
+            valid_eval = shifted_obs[non_null]
+            valid_sim = valid_sim[non_null]
 
         if self.obj_fn == "kge_adj" :
             kge_adj = pd.Series(1-np.sqrt((2*(np.corrcoef(valid_sim, valid_eval)[0,1]-1))**2 + \

@@ -4,6 +4,7 @@ import shlex
 import pandas as pd
 import re
 import geopandas as gpd
+import numpy as np
 
 
 
@@ -368,7 +369,7 @@ class RavenHydrograph:
             print("No hydrograph CSV file found in output directory.")
             return pd.DataFrame() # Return empty DataFrame if not found
 
-    def read_sim(self, subbasin_id, start_yr, end_yr, spring_only = True, refresh=False) -> pd.DataFrame:
+    def read_sim(self, subbasin_id, years: np.array, spring_only = True, resolution='d', refresh=False) -> pd.DataFrame:
         """
         Extract simulated discharge data for a given subbasin from the hydrograph DataFrame.
 
@@ -384,7 +385,7 @@ class RavenHydrograph:
             self.data = self.read_hydrograph()
             # self.data = self.data.loc[self.data["date"].dt.year.between(start_yr, end_yr)]
 
-        self.eval = self.data.loc[self.data["date_time"].dt.year.between(start_yr, end_yr)]
+        self.eval = self.data.loc[self.data["date_time"].dt.year.isin(years)]
 
         if spring_only:
             self.eval = self.eval.loc[self.eval["date_time"].dt.month.lt(6)]
@@ -393,12 +394,17 @@ class RavenHydrograph:
         for col in self.eval.columns:
             if subbasin_id in col.lower() and not "observed" in col.lower():
                 simulated = self.eval[col]
-                break
-            
+                break  # Set the index to the date_time column for time series analysis
+        
+        simulated.index = self.eval["date_time"]
+
+        if resolution == 'd':
+
+            simulated = simulated.resample('D').mean()
 
         return simulated
 
-    def read_obs(self, start_yr, end_yr, spring_only = True, refresh=False) -> pd.DataFrame:
+    def read_obs(self, years: np.array, spring_only = True, resolution='d', refresh=False) -> pd.DataFrame:
         """
         Extract observed discharge data from the hydrograph DataFrame.
 
@@ -410,37 +416,44 @@ class RavenHydrograph:
             self.data = self.read_hydrograph()
             # self.data = self.data.loc[self.data["date"].dt.year.between(start_yr, end_yr)]
 
-        self.eval = self.data.loc[self.data["date_time"].dt.year.between(start_yr, end_yr)]
+        self.eval = self.data.loc[self.data["date_time"].dt.year.isin(years)]
 
         if spring_only:
             self.eval = self.eval.loc[self.eval["date_time"].dt.month.lt(6)]
         
-        # Using only noon values for evaluating the daily interval for interpolation
-        mid_day = 12
-        noon_index = []
-        # print(f"Available hours in data: {self.eval['date_time'].dt.hour.unique()}", flush=True)
-        while mid_day < 18 and len(noon_index) == 0:
-            noon_index = self.eval.index[self.eval["date_time"].dt.hour == mid_day]
-            if len(noon_index) > 0:
-                break
-            else: 
-                mid_day += 1
-                print(f"Warning: No data found at {mid_day-1}h, trying {mid_day}h instead.")
+        if resolution == 'h':
+            # Using only noon values for evaluating the daily interval for interpolation
+            mid_day = 12
+            noon_index = []
+            # print(f"Available hours in data: {self.eval['date_time'].dt.hour.unique()}", flush=True)
+            while mid_day < 18 and len(noon_index) == 0:
+                noon_index = self.eval.index[self.eval["date_time"].dt.hour == mid_day]
+                if len(noon_index) > 0:
+                    break
+                else: 
+                    mid_day += 1
+                    print(f"Warning: No data found at {mid_day-1}h, trying {mid_day}h instead.")
 
-        noon_index_interval = int(noon_index[1]-noon_index[0])
+            noon_index_interval = int(noon_index[1]-noon_index[0])
 
         # Look for any column with 'observed' in its name
         for col in self.eval.columns:
             if "observed" in col.lower():
                 # removed values in this column that are not at noon
                 observed = self.eval[col]
-                observed = observed.where(observed.index.isin(noon_index))
-                observed = observed.interpolate(method='linear', limit_direction='both', limit = noon_index_interval, limit_area = "inside")
+                if resolution == 'h':
+                    observed = observed.where(observed.index.isin(noon_index)) 
+                    observed = observed.interpolate(method='linear', limit_direction='both', limit = noon_index_interval, limit_area = "inside")
+                    observed.index = self.eval["date_time"]
                 
                 break
+        if resolution == 'd':
+            observed.index = self.eval["date_time"]
+            observed = observed.resample('D').mean()
+
         return observed
     
-    def read_runoff(self, start_yr, end_yr, spring_only = True, refresh=False) -> pd.DataFrame:
+    def read_runoff(self, years: np.array, spring_only = True, refresh=False) -> pd.DataFrame:
         """
         Extract total runoff data from the hydrograph DataFrame.
 
@@ -452,7 +465,7 @@ class RavenHydrograph:
             self.data = self.read_hydrograph()
             # self.data = self.data.loc[self.data["date"].dt.year.between(start_yr, end_yr)]
 
-        self.eval = self.data.loc[self.data["date_time"].dt.year.between(start_yr, end_yr)]
+        self.eval = self.data.loc[self.data["date_time"].dt.year.isin(years)]
 
         if spring_only:
             self.eval = self.eval.loc[self.eval["date_time"].dt.month.lt(8)]
@@ -465,7 +478,7 @@ class RavenHydrograph:
                 break
         return runoff
     
-def index_to_date(index, start_date="2003-01-01 00:00:00", freq="H"):
+def index_to_date(index, start_date="1985-01-01 00:00:00", freq="H"):
     """
     Convert a zero-based index to a datetime object based on a given start date and frequency.
     """
@@ -474,14 +487,13 @@ def index_to_date(index, start_date="2003-01-01 00:00:00", freq="H"):
 
     if freq.lower() == 'h':
         return start + pd.to_timedelta(index, unit=freq[0].lower())
-    elif freq.to_lower() == '3h':
+    elif freq.lower() == '3h':
         return start + pd.to_timedelta(index * 3, unit='h')
     else:
         raise ValueError("Unsupported frequency. Use 'H' for hourly or '3H' for 3-hourly.")
 
 def plot_timeseries(_sim, _eval, _runoff=None, start_idx=None, end_idx=None, timestep = "H"):
     import matplotlib.pyplot as plt
-    import numpy as np
 
     # Use full range if not specified
     if start_idx is None:

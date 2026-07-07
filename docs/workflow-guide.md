@@ -13,32 +13,15 @@ Before starting the workflow, ensure you have:
 - **Data Requirements**: Required input datasets downloaded and organized (see individual step requirements below)
 - **Hardware**: Sufficient computational resources (especially for calibration steps)
 
+See [ReadMe.md](../ReadMe.md) for more details on requirements.
+
 ---
 
 ## Step 0: Depression Depths Calculation
 **Notebook**: [0_depression_depths_calc.ipynb](../_notebooks/0_depression_depths_calc.ipynb)
 
 ### Purpose
-Calculates depression depths and geometries per subbasin using LiDAR DEMs and WhiteBox Tools for prairie wetland representation.
-
-### Required Inputs
-- **Watershed Dataset**: From [CLRH Hydrofabrics](https://hydrology.uwaterloo.ca/CLRH/Hydrofabric.html) (e.g., `ID: 05OE006` for Manning Canal)
-- **Stream Network**: From [NHN streams](https://ftp.maps.canada.ca/pub/nrcan_rncan/vector/geobase_nhn_rhn/shp_en/) (e.g., `ngn_rhn_05oe000_shp_en.zip`)
-- **LiDAR DEM**: From [Manitoba LiDAR DEMs](https://mli.gov.mb.ca/dems/index_external_lidar.html) (e.g., `Seine & Rat 2016`)
-
-### Outputs
-- Depression depth rasters and geometries
-- Subbasin-level depression characteristics
-- Processed watershed boundaries and stream networks
-
-### Key Technologies
-- **WhiteBox Tools**: Terrain analysis and hydrological conditioning
-- **pwa_tools**: Custom PWA hydro-conditioning package
-
-### More info
-- **pwa-h-c-tools** : python package & developer notes
-- [**notebook**](../_notebooks/0_depression_depths_calc.ipynb): Package testing & debugging
-- **pwa-h-c-main** : user-facing setup, instructions, and python execution script
+DEPRECATED - Use hydro-conditioning-tools pip package for hydroconditioning
 
 ---
 
@@ -51,7 +34,7 @@ Processes PHyDAP runoff data by adding dimensions to NetCDF files and creating s
 ### Required Inputs
 - **PHyDAP Runoff Data**: `PHyDAP_era5_hourly_upland_runoff.nc` from [FRDR repository](https://www.frdr-dfdr.ca/repo/dataset/7ce4bd7a-4bcc-4f8c-8129-32a691f46c8e)
 - **PHyDAP Shapefile**: Prairie Hydrosheds shapefile from same repository
-- **Outputs from Step 0**: Watershed boundaries and depression data
+- **Outputs from Step 0**: Watershed boundaries and depression data 
 
 ### Outputs
 - Dimensioned NetCDF files compatible with Raven
@@ -72,6 +55,7 @@ Processes PHyDAP runoff data by adding dimensions to NetCDF files and creating s
 Generates all required input files for the Raven hydrological model, including watershed configuration, parameters, and forcing data.
 
 ### Required Inputs
+*Outputs from previous processes are automatically carried over*
 - **Processed depression data** from Step 0
 - **Formatted NetCDF data** from Step 1
 - **Additional model parameters**: Manning's n values, soil properties
@@ -105,6 +89,8 @@ mpirun -c 14 python 3_calibrate.py calibration_results
 mpiexec -n 14 python 3_calibrate.py calibration_results
 ```
 
+The 3_calibrate.py file can be edited to specify the number of reps for the calibration. If using fewer cores with MPI, the new number should also be specified in this file.
+
 ### Features
 - **SPOTPY Integration**: Uses SPOTPY algorithms for optimization
 - **MPI Parallelization**: Distributes parameter evaluations across cores
@@ -112,9 +98,9 @@ mpiexec -n 14 python 3_calibrate.py calibration_results
 - **Parameter Spaces**: Covers depression scaling, runoff scaling, channel scaling
 
 ### Outputs
-- Calibrated parameter sets with performance metrics
-- Calibration database (`.csv` format)
-- Best parameter combinations for model setup
+- Calibration database (`.csv` format) with:
+    - Calibrated parameter sets with performance metrics
+    - Best parameter combinations for model setup
 
 ---
 
@@ -162,6 +148,15 @@ Comprehensive model performance evaluation using hydrographs, storage time serie
 - Model validation results
 - Recommendations for model improvements
 
+
+---
+
+## Step 6: Frequency Analysis
+
+Running `python ./src/py/freq_report.py` generates a report with a frequency analysis for the watershed of interest. This can be a valuable supplementary report for any users of the watershed models.
+
+- Users should update the user input parameters in the .py and corresponding .r files before running the script.
+
 ---
 
 ## Workflow Decision Points
@@ -184,36 +179,13 @@ Comprehensive model performance evaluation using hydrographs, storage time serie
 
 **After Each Step:**
 1. **Verify Outputs**: Check that expected files are created with reasonable content
-2. **Data Validation**: Use quality check functions in [raven_tests.py](../_notebooks/raven_tests.py)
+2. **Data Validation**: Use quality check functions TBD
 3. **Visual Inspection**: Review plots and summary statistics
 4. **Error Handling**: Address any warnings or errors before proceeding
-
-### Common Issues and Solutions
-
-**Step 0 Issues:**
-- **Missing LiDAR data**: Verify DEM coverage and coordinate systems
-- **WhiteBox Tools errors**: Check installation and PATH variables
-
-**Step 1 Issues:**
-- **NetCDF format errors**: Validate file structure using `raven_tests.py`
-- **Spatial misalignment**: Verify coordinate reference systems match
-
-**Step 2 Issues:**
-- **Invalid Raven files**: Test with simple manual Raven run
-- **Missing parameters**: Check parameter file completeness
-
-**Steps 3-4 Issues:**
-- **MPI errors**: Verify MPI installation and core specifications
-- **Memory issues**: Reduce parameter space or increase system resources
-
-**Step 5 Issues:**
-- **Missing observation data**: Verify streamflow data availability and format
-- **Performance interpretation**: Consider watershed-specific evaluation criteria
 
 ## Supporting Tools
 
 ### Testing and Validation
-- **[raven_tests.py](../_notebooks/raven_tests.py)**: NetCDF inspection, data validation functions
 - **Quality check functions**: Built into each notebook for intermediate validation
 
 ### Environment Management
@@ -223,13 +195,3 @@ Comprehensive model performance evaluation using hydrographs, storage time serie
 ### Project Configuration
 - Custom project configuration files in [src/py/](../src/py/) directory
 - Modular design allows for easy adaptation to new watersheds
-
----
-
-## Next Steps After Workflow Completion
-
-1. **Model Application**: Use calibrated model for scenario analysis or forecasting
-2. **Sensitivity Analysis**: Explore parameter and input data sensitivity
-3. **Model Extension**: Add water quality modules or other process representations
-4. **Documentation**: Record watershed-specific findings and parameter values
-5. **Reproducibility**: Archive complete model setup and results for future reference
