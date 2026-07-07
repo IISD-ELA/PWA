@@ -26,7 +26,7 @@ __pycache__/
 hydro_condition.py
 archive/
 src/raven/
-scratch/
+local/
 _notebooks/watershed_nbs/
 
 # Python build/test artifacts
