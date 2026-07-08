@@ -828,7 +828,7 @@ def generate_freq_report(
     # Build recurrence table:
     #   • Design-flow quantiles at 2, 5, 10, and 500 years
     #   • Top-3 observed events (by peak flow) with their LP3 return periods
-    _REPORT_DESIGN_RPS = {2, 5, 10, 500}
+    _REPORT_DESIGN_RPS = {2, 5, 10}
     std_entries = [
         {
             "rp": float(row["ReturnPeriod"]),
