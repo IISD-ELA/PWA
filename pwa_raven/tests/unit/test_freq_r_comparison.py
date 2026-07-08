@@ -116,7 +116,7 @@ def test_design_flow_quantiles_match_r(tmp_path):
     py_params = fa._fit_lp3(wy["PeakFlow"].values)
     py_quantiles = fa._lp3_quantiles(py_params, std_neps)
 
-    # R
+    # R — jsonlite serialises data.frames row-major: [{"nep":..., "q":...}, ...]
     r_data = _run_r(tmp_path)
     r_quantiles = np.array([row["q"] for row in r_data["standard_quantiles"]])
 
