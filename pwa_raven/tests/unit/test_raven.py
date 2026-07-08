@@ -10,6 +10,7 @@ in this submodule:
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from unittest.mock import patch
 
@@ -385,7 +386,7 @@ def test_find_raven_binary_error_lists_searched_directories(tmp_path: Path) -> N
     data_dir = tmp_path / "calib"
     data_dir.mkdir()
     with patch("shutil.which", return_value=None):
-        with pytest.raises(FileNotFoundError, match=str(data_dir)):
+        with pytest.raises(FileNotFoundError, match=re.escape(str(data_dir))):
             _find_raven_binary(search_dirs=[data_dir])
 
 
