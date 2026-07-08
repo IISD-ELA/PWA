@@ -825,13 +825,36 @@ def generate_freq_report(
     tpl_path = Path(__file__).parent / "freq_analysis_tpl.md"
     template = tpl_path.read_text(encoding="utf-8")
 
-    # Build recurrence table
-    rows = ["| Return Period (years) | Flow Estimate (m³/s) | Nearest Event (Water Year) |",
+    # Build recurrence table:
+    #   • Design-flow quantiles at 2, 5, 10, and 500 years
+    #   • Top-3 observed events (by peak flow) with their LP3 return periods
+    _REPORT_DESIGN_RPS = {2, 5, 10, 500}
+    std_entries = [
+        {
+            "rp": float(row["ReturnPeriod"]),
+            "q": float(row["Q"]),
+            "wy": int(row["NearestEvent"]),
+        }
+        for _, row in result.standard_return_periods[
+            result.standard_return_periods["ReturnPeriod"].isin(_REPORT_DESIGN_RPS)
+        ].iterrows()
+    ]
+    top3 = result.wy_summary.nlargest(3, "PeakFlow")
+    obs_entries = [
+        {
+            "rp": float(row["EstimatedReturnPeriod"]),
+            "q": float(row["PeakFlow"]),
+            "wy": int(row["WaterYear"]),
+        }
+        for _, row in top3.iterrows()
+    ]
+    table_entries = sorted(std_entries + obs_entries, key=lambda x: x["rp"])
+    rows = ["| Return Period (years) | Flow Estimate (m³/s) | Water Year |",
             "|---|---|---|"]
-    for _, row in result.standard_return_periods.iterrows():
-        rows.append(
-            f"| {int(row['ReturnPeriod'])} | {row['Q']:.2f} | {int(row['NearestEvent'])} |"
-        )
+    for entry in table_entries:
+        rp = entry["rp"]
+        rp_str = str(int(rp)) if rp == int(rp) else f"{rp:.1f}"
+        rows.append(f"| {rp_str} | {entry['q']:.2f} | {entry['wy']} |")
     event_returns = "\n".join(rows)
 
     # GoF summary string
