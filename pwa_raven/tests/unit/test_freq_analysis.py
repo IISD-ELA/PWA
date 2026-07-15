@@ -128,7 +128,6 @@ class TestLoadFlowData:
         # counts match the single-station expectation (not doubled)
         df_b = fa._load_flow_data(p, wsc_id="STATION_B")
         assert len(df_a) == len(df_b)
-        assert len(df_a) < fa._load_flow_data.__code__.co_varcount or True  # guard
         # Approximate: combined rows should be ~2x either single station
         all_rows = pd.read_csv(p, header=0, skiprows=1)
         all_rows = all_rows[all_rows["PARAM"] == 1]
