@@ -21,6 +21,7 @@ the R-comparison regression suite.
 
 from __future__ import annotations
 
+import logging
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
@@ -32,6 +33,8 @@ from scipy import stats
 from scipy.stats import pearson3
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Module-level constants
@@ -117,6 +120,7 @@ def _load_flow_data(
     param_id: int = 1,
     start_year: int | None = None,
     end_year: int | None = None,
+    wsc_id: str | None = None,
 ) -> pd.DataFrame:
     """Load and clean daily flow data from a WSC-style CSV.
 
@@ -131,13 +135,38 @@ def _load_flow_data(
         PARAM value to keep (1 = flow, 2 = water level, …).
     start_year, end_year:
         Inclusive year filters.
+    wsc_id:
+        WSC station ID to extract.  If ``None``, the file must contain
+        exactly one distinct ID; otherwise a ``ValueError`` is raised
+        listing the IDs found.
 
     Returns
     -------
     DataFrame with columns ``Date`` (datetime) and ``Value`` (float).
     """
     df = pd.read_csv(filepath, header=0, skiprows=1)
-    df = df[df["PARAM"] == param_id][["Date", "Value"]].copy()
+    df = df[df["PARAM"] == param_id][["ID", "Date", "Value"]].copy()
+
+    # --- Station ID resolution ---
+    distinct_ids = df["ID"].unique().tolist()
+    if wsc_id is not None:
+        if wsc_id not in distinct_ids:
+            raise ValueError(
+                f"wsc_id '{wsc_id}' not found in the data. "
+                f"Available station IDs: {distinct_ids}"
+            )
+        df = df[df["ID"] == wsc_id]
+        logger.info("Filtering flow data to station ID '%s'", wsc_id)
+    else:
+        if len(distinct_ids) > 1:
+            raise ValueError(
+                f"The data contains {len(distinct_ids)} station IDs but no "
+                f"wsc_id was specified. Please provide wsc_id. "
+                f"Station IDs found: {distinct_ids}"
+            )
+        logger.info("Auto-selected single station ID '%s'", distinct_ids[0])
+
+    df = df[["Date", "Value"]].copy()
     df["Date"] = pd.to_datetime(df["Date"], format="%Y/%m/%d")
     if start_year is not None:
         df = df[df["Date"].dt.year >= start_year]
@@ -653,6 +682,7 @@ def export_wy_summary(
     n_bootstrap: int = 10_000,
     ci: float = 0.90,
     seed: int | None = None,
+    wsc_id: str | None = None,
 ) -> tuple[FreqAnalysisResult, pd.DataFrame]:
     """Load daily flow data and produce a water-year LP3 frequency analysis.
 
@@ -688,6 +718,9 @@ def export_wy_summary(
         Confidence level for the CI band (default 0.90).
     seed:
         Random seed for reproducibility.
+    wsc_id:
+        WSC station ID to extract from the input CSV.  If ``None``, the
+        file must contain exactly one distinct station ID.
 
     Returns
     -------
@@ -699,29 +732,43 @@ def export_wy_summary(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    label = watershed_name or str(data_path)
+    logger.info("Starting frequency analysis for '%s'", label)
+
     # 1. Load data
     flow_df = _load_flow_data(data_path, param_id=param_id,
-                              start_year=start_year, end_year=end_year)
+                              start_year=start_year, end_year=end_year,
+                              wsc_id=wsc_id)
+    logger.info("Loaded %d daily flow records", len(flow_df))
 
     # 2. Water-year summary
     wy = _summarize_by_water_year(flow_df, origin_month=origin_month)
+    logger.info("Water-year summary: %d years", len(wy))
 
     # 3. MGBT
     mgbt_thresh = _mgbt(wy["PeakFlow"].values)
     wy["IsPILF"] = wy["PeakFlow"] < mgbt_thresh
     n_pilf = int(wy["IsPILF"].sum())
+    logger.info("MGBT threshold: %.4f — %d PILF(s) identified", mgbt_thresh, n_pilf)
 
     # 4. Fit LP3 on non-PILF series
     annual_series = wy.loc[~wy["IsPILF"], "PeakFlow"].values
     if len(annual_series) < 4:
         # Fall back to full series if MGBT removed too many records
+        logger.warning(
+            "MGBT removed too many records (%d remaining); falling back to full series",
+            len(annual_series),
+        )
         annual_series = wy["PeakFlow"].values
     lp3_params = _fit_lp3(annual_series)
+    logger.info("LP3 fit: loc=%.4f, scale=%.4f, skew=%.4f",
+                lp3_params["loc"], lp3_params["scale"], lp3_params["skew"])
 
     # 5. Return period for every water year
     wy["EstimatedReturnPeriod"] = _lp3_return_period(wy["PeakFlow"].values, lp3_params)
 
     # 6. Bootstrap CI (at plot-resolution NEP)
+    logger.info("Running bootstrap CI (%d resamples)", n_bootstrap)
     ci_df = _bootstrap_ci(annual_series, lp3_params, _PLOT_NEP,
                           n_resamples=n_bootstrap, ci=ci, seed=seed)
 
@@ -740,9 +787,11 @@ def export_wy_summary(
 
     # 8. Goodness-of-fit tests
     gof = _gof_tests(annual_series, lp3_params, seed=seed)
+    logger.info("GoF — AD p=%.4f, CvM p=%.4f", gof["ad_pval"], gof["cvm_pval"])
 
     # 9. Save summary CSV
     wy.to_csv(output_dir / "wy_summary.csv", index=False)
+    logger.info("Saved wy_summary.csv → %s", output_dir / "wy_summary.csv")
 
     result = FreqAnalysisResult(
         wy_summary=wy,

@@ -19,14 +19,14 @@ import pwa_raven.freq_analysis as fa
 
 # ── Synthetic data helpers ────────────────────────────────────────────────────
 
-def _make_flow_csv(tmp_path: Path, n: int = 40, seed: int = 0) -> Path:
+def _make_flow_csv(tmp_path: Path, n: int = 40, seed: int = 0, station_id: str = "STATION") -> Path:
     """Write a minimal WSC-style daily flow CSV and return its path."""
     rng = np.random.default_rng(seed)
     dates = pd.date_range("1980-10-01", periods=n * 365, freq="D")
     values = rng.lognormal(mean=3.0, sigma=0.5, size=len(dates))
     df = pd.DataFrame(
         {
-            "ID": "STATION",
+            "ID": station_id,
             "PARAM": 1,
             "Date": dates.strftime("%Y/%m/%d"),
             "Value": values,
@@ -35,6 +35,28 @@ def _make_flow_csv(tmp_path: Path, n: int = 40, seed: int = 0) -> Path:
     )
     # WSC format has a metadata header row
     p = tmp_path / "flow.csv"
+    with p.open("w") as f:
+        f.write("# metadata header\n")
+        df.to_csv(f, index=False)
+    return p
+
+
+def _make_multi_station_csv(tmp_path: Path, n: int = 20, seed: int = 0) -> Path:
+    """Write a WSC-style CSV containing two distinct station IDs."""
+    rng = np.random.default_rng(seed)
+    dates = pd.date_range("1980-10-01", periods=n * 365, freq="D")
+    values_a = rng.lognormal(mean=3.0, sigma=0.5, size=len(dates))
+    values_b = rng.lognormal(mean=2.5, sigma=0.4, size=len(dates))
+    df_a = pd.DataFrame(
+        {"ID": "STATION_A", "PARAM": 1, "Date": dates.strftime("%Y/%m/%d"),
+         "Value": values_a, "SYM": ""}
+    )
+    df_b = pd.DataFrame(
+        {"ID": "STATION_B", "PARAM": 1, "Date": dates.strftime("%Y/%m/%d"),
+         "Value": values_b, "SYM": ""}
+    )
+    df = pd.concat([df_a, df_b], ignore_index=True)
+    p = tmp_path / "flow_multi.csv"
     with p.open("w") as f:
         f.write("# metadata header\n")
         df.to_csv(f, index=False)
@@ -90,6 +112,38 @@ class TestLoadFlowData:
         p = _make_flow_csv(tmp_path)
         df = fa._load_flow_data(p)
         assert df["Value"].notna().all()
+
+    def test_single_station_no_wsc_id_succeeds(self, tmp_path):
+        """Single-station CSV with no wsc_id specified should load fine."""
+        p = _make_flow_csv(tmp_path, station_id="05HG001")
+        df = fa._load_flow_data(p)
+        assert len(df) > 0
+
+    def test_multi_station_with_wsc_id_filters_correctly(self, tmp_path):
+        """Providing wsc_id on a multi-station CSV returns only that station."""
+        p = _make_multi_station_csv(tmp_path)
+        df_a = fa._load_flow_data(p, wsc_id="STATION_A")
+        assert len(df_a) > 0
+        # Verify only station A rows are returned by cross-checking value
+        # counts match the single-station expectation (not doubled)
+        df_b = fa._load_flow_data(p, wsc_id="STATION_B")
+        assert len(df_a) == len(df_b)
+        # Approximate: combined rows should be ~2x either single station
+        all_rows = pd.read_csv(p, header=0, skiprows=1)
+        all_rows = all_rows[all_rows["PARAM"] == 1]
+        assert len(df_a) == len(all_rows[all_rows["ID"] == "STATION_A"])
+
+    def test_multi_station_no_wsc_id_raises(self, tmp_path):
+        """Multi-station CSV with no wsc_id specified must raise ValueError."""
+        p = _make_multi_station_csv(tmp_path)
+        with pytest.raises(ValueError, match="wsc_id"):
+            fa._load_flow_data(p)
+
+    def test_wsc_id_not_found_raises(self, tmp_path):
+        """Specifying a wsc_id that matches no rows must raise ValueError."""
+        p = _make_flow_csv(tmp_path, station_id="05HG001")
+        with pytest.raises(ValueError, match="05XX999"):
+            fa._load_flow_data(p, wsc_id="05XX999")
 
 
 # ── _summarize_by_water_year ──────────────────────────────────────────────────
