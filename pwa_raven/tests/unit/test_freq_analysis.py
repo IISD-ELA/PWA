@@ -375,6 +375,12 @@ class TestPlotHelpers:
 # ── export_wy_summary (integration with mocked sub-steps) ────────────────────
 
 class TestExportWySummary:
+    def test_wrong_input_format_raises(self, tmp_path):
+        import pandas as pd
+        p = pd.DataFrame()
+        with pytest.raises(TypeError, match=["input", "format"]):
+            fa.export_wy_summary(data_path=p, output_dir=tmp_path)
+    
     def test_result_has_return_period_column(self, tmp_path):
         import matplotlib
         matplotlib.use("Agg")
