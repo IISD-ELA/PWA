@@ -22,6 +22,7 @@ the R-comparison regression suite.
 from __future__ import annotations
 
 import logging
+import pathlib
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
@@ -731,6 +732,10 @@ def export_wy_summary(
     """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Catch incorrect input types early to avoid confusing downstream errors
+    if type(data_path) is not str and type(data_path) is not Path and type(data_path) is not pathlib.WindowsPath:
+        raise TypeError(f"Wrong input format: data_path must be str, Path, or WindowsPath, got {type(data_path)}")
 
     label = watershed_name or str(data_path)
     logger.info("Starting frequency analysis for '%s'", label)

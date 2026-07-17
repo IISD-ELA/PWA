@@ -376,9 +376,8 @@ class TestPlotHelpers:
 
 class TestExportWySummary:
     def test_wrong_input_format_raises(self, tmp_path):
-        import pandas as pd
-        p = pd.DataFrame()
-        with pytest.raises(TypeError, match=["input", "format"]):
+        p = pd.DataFrame({"Date": ["2020-01-01"], "Value": [10.0]})
+        with pytest.raises(TypeError, match="input"):
             fa.export_wy_summary(data_path=p, output_dir=tmp_path)
     
     def test_result_has_return_period_column(self, tmp_path):
