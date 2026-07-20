@@ -149,6 +149,7 @@ def _load_flow_data(
     DataFrame with columns ``Date`` (datetime) and ``Value`` (float).
     """
     df = pd.read_csv(filepath, header=0, skiprows=1)
+    df.columns = df.columns.str.strip()
     df = df[df["PARAM"] == param_id][["ID", "Date", "Value"]].copy()
 
     # --- Station ID resolution ---
@@ -494,9 +495,11 @@ def _summarize_wy_from_events(
                 "PeakFlow": peak_flow,
                 "TotalVolume": total_vol,
                 "Type": flow_type,
+                "EventStart": wy_daily["Date"].min(),
+                "EventEnd": wy_daily["Date"].max(),
             })
             continue
-
+        
         # Annual peak: highest PeakFlow regardless of date
         annual_row = wy_events.loc[wy_events["PeakFlow"].idxmax()]
         annual_is_spring = pd.to_datetime(annual_row["peak_date"]).month in _SPRING_MONTHS
@@ -507,21 +510,25 @@ def _summarize_wy_from_events(
             "PeakFlow": float(annual_row["PeakFlow"]),
             "TotalVolume": float(annual_row["total_volume_m3"]),
             "Type": "Spring" if annual_is_spring else "Annual",
+            "EventStart": pd.to_datetime(annual_row["start_date"]),
+            "EventEnd": pd.to_datetime(annual_row["end_date"]),
         })
 
         # Spring peak: highest PeakFlow in Mar–Jun, only if distinct from annual
-        spring_events = wy_events[
-            pd.to_datetime(wy_events["peak_date"]).dt.month.isin(_SPRING_MONTHS)
-        ]
-        if not spring_events.empty:
-            spring_row = spring_events.loc[spring_events["PeakFlow"].idxmax()]
-            if spring_row.name != annual_row.name:
+        if not annual_is_spring:
+            spring_events = wy_events[
+                pd.to_datetime(wy_events["peak_date"]).dt.month.isin(_SPRING_MONTHS)
+            ]
+            if not spring_events.empty:
+                spring_row = spring_events.loc[spring_events["PeakFlow"].idxmax()]
                 rows.append({
                     "WaterYear": wy,
                     "PeakFlowDate": pd.to_datetime(spring_row["peak_date"]),
                     "PeakFlow": float(spring_row["PeakFlow"]),
                     "TotalVolume": float(spring_row["total_volume_m3"]),
                     "Type": "Spring",
+                    "EventStart": pd.to_datetime(spring_row["start_date"]),
+                    "EventEnd": pd.to_datetime(spring_row["end_date"]),
                 })
 
     return pd.DataFrame(rows)

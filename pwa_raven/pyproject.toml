@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pwa-raven"
-version = "0.2.1"
+version = "0.2.2"
 description = "Raven hydrological model setup and input generation for PWA - with frequency analysis"
 readme = "README.md"
 requires-python = ">=3.9"
