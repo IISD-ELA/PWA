@@ -375,6 +375,11 @@ class TestPlotHelpers:
 # ── export_wy_summary (integration with mocked sub-steps) ────────────────────
 
 class TestExportWySummary:
+    def test_wrong_input_format_raises(self, tmp_path):
+        p = pd.DataFrame({"Date": ["2020-01-01"], "Value": [10.0]})
+        with pytest.raises(TypeError, match="input"):
+            fa.export_wy_summary(data_path=p, output_dir=tmp_path)
+    
     def test_result_has_return_period_column(self, tmp_path):
         import matplotlib
         matplotlib.use("Agg")
@@ -477,3 +482,245 @@ class TestGenerateFreqReport:
         text = report_path.read_text()
         # Markdown table rows for standard return periods should be present
         assert "| 2 |" in text or "| 5 |" in text
+
+
+# ── _local_min ────────────────────────────────────────────────────────────────
+
+class TestLocalMin:
+    def test_single_valley(self):
+        x = np.array([3.0, 1.0, 3.0])
+        result = fa._local_min(x)
+        assert 1 in result
+
+    def test_two_valleys(self):
+        x = np.array([5.0, 1.0, 5.0, 2.0, 5.0])
+        result = fa._local_min(x)
+        assert 1 in result
+        assert 3 in result
+
+    def test_flat_series_no_minima(self):
+        result = fa._local_min(np.ones(10))
+        assert len(result) == 0
+
+    def test_monotone_decreasing_trailing_min(self):
+        x = np.array([5.0, 4.0, 3.0, 2.0, 1.0])
+        result = fa._local_min(x)
+        assert 4 in result
+
+    def test_short_series_length_one(self):
+        result = fa._local_min(np.array([5.0]))
+        assert len(result) == 0
+
+
+# ── _event_minima ─────────────────────────────────────────────────────────────
+
+class TestEventMinima:
+    # Two clear peaks separated by a trough (from notebook smoke test)
+    _DEMO = np.array([1, 2, 8, 3, 1, 1, 2, 9, 4, 1, 1, 0], dtype=float)
+
+    def test_two_clear_peaks_detects_event(self):
+        result = fa._event_minima(self._DEMO, delta_y=5, delta_x=1, threshold=0)
+        assert result is not None
+        assert len(result) >= 1
+
+    def test_returns_none_for_flat_series(self):
+        result = fa._event_minima(np.ones(10), delta_y=5, delta_x=1)
+        assert result is None
+
+    def test_summary_columns_present(self):
+        result = fa._event_minima(
+            self._DEMO, delta_y=5, delta_x=1, threshold=0, out_style="summary"
+        )
+        assert result is not None
+        assert {"srt", "end", "which.max", "max", "sum"}.issubset(result.columns)
+
+    def test_srt_le_end(self):
+        result = fa._event_minima(
+            self._DEMO, delta_y=5, delta_x=1, threshold=0, out_style="summary"
+        )
+        assert result is not None
+        assert (result["srt"] <= result["end"]).all()
+
+    def test_which_max_within_event_bounds(self):
+        result = fa._event_minima(
+            self._DEMO, delta_y=5, delta_x=1, threshold=0, out_style="summary"
+        )
+        assert result is not None
+        for _, row in result.iterrows():
+            assert row["srt"] <= row["which.max"] <= row["end"]
+
+
+# ── _identify_flow_events ─────────────────────────────────────────────────────
+
+class TestIdentifyFlowEvents:
+    @staticmethod
+    def _daily_df() -> pd.DataFrame:
+        """24-day series containing two well-separated peaks."""
+        dates = pd.date_range("2000-01-01", periods=24, freq="D")
+        x = np.array(
+            [1, 2, 8, 5, 2, 1, 1, 1, 2, 9, 7, 4,
+             2, 1, 1, 1, 2, 6, 5, 3, 1, 1, 1, 1],
+            dtype=float,
+        )
+        return pd.DataFrame({"Date": dates, "Value": x})
+
+    def test_returns_dataframe(self):
+        events = fa._identify_flow_events(self._daily_df())
+        assert isinstance(events, pd.DataFrame)
+
+    def test_expected_columns_present(self):
+        events = fa._identify_flow_events(self._daily_df())
+        for col in ("start_date", "end_date", "peak_date", "PeakFlow", "total_volume_m3"):
+            assert col in events.columns, f"Missing column: {col}"
+
+    def test_no_intermediate_index_columns(self):
+        """srt, end, which.max, sum must be dropped from the output."""
+        events = fa._identify_flow_events(self._daily_df())
+        for col in ("srt", "end", "which.max", "sum"):
+            assert col not in events.columns
+
+    def test_date_columns_are_datetime(self):
+        events = fa._identify_flow_events(self._daily_df())
+        if len(events) > 0:
+            for col in ("start_date", "end_date", "peak_date"):
+                assert pd.api.types.is_datetime64_any_dtype(events[col])
+
+    def test_total_volume_positive(self):
+        events = fa._identify_flow_events(self._daily_df())
+        if len(events) > 0:
+            assert (events["total_volume_m3"] > 0).all()
+
+    def test_flat_series_returns_empty_dataframe(self):
+        """No detectable events → empty DataFrame (not None)."""
+        dates = pd.date_range("2000-01-01", periods=20, freq="D")
+        flat_df = pd.DataFrame({"Date": dates, "Value": np.ones(20)})
+        events = fa._identify_flow_events(flat_df)
+        assert isinstance(events, pd.DataFrame)
+        assert len(events) == 0
+
+
+# ── _summarize_wy_from_events ─────────────────────────────────────────────────
+
+class TestSummarizeWYFromEvents:
+    @staticmethod
+    def _make_events(entries: list) -> pd.DataFrame:
+        """
+        Build a hand-crafted events DataFrame.
+        entries: list of (start_str, end_str, peak_str, PeakFlow, total_volume_m3).
+        """
+        rows = []
+        for start, end, peak, flow, vol in entries:
+            rows.append({
+                "start_date": pd.Timestamp(start),
+                "end_date": pd.Timestamp(end),
+                "peak_date": pd.Timestamp(peak),
+                "PeakFlow": float(flow),
+                "total_volume_m3": float(vol),
+            })
+        return pd.DataFrame(rows)
+
+    @staticmethod
+    def _make_flow_df(start: str, end: str, baseline: float = 1.0) -> pd.DataFrame:
+        dates = pd.date_range(start, end, freq="D")
+        return pd.DataFrame({"Date": dates, "Value": np.full(len(dates), baseline)})
+
+    def test_expected_columns_present(self):
+        events = self._make_events([
+            ("2000-05-01", "2000-05-20", "2000-05-10", 50.0, 1e6),
+        ])
+        flow_df = self._make_flow_df("1999-10-01", "2001-09-30")
+        wy = fa._summarize_wy_from_events(events, flow_df)
+        for col in ("WaterYear", "PeakFlowDate", "PeakFlow", "TotalVolume", "Type"):
+            assert col in wy.columns
+
+    def test_type_values_valid(self):
+        events = self._make_events([
+            ("2000-05-01", "2000-05-20", "2000-05-10", 50.0, 1e6),
+        ])
+        flow_df = self._make_flow_df("1999-10-01", "2001-09-30")
+        wy = fa._summarize_wy_from_events(events, flow_df)
+        assert set(wy["Type"].unique()).issubset({"Spring", "Annual"})
+
+    def test_spring_peak_only_gives_one_row_labelled_spring(self):
+        """A spring event with no other event in the same year → one 'Spring' row."""
+        events = self._make_events([
+            ("2000-05-01", "2000-05-20", "2000-05-10", 50.0, 1e6),
+        ])
+        flow_df = self._make_flow_df("1999-10-01", "2001-09-30")
+        wy = fa._summarize_wy_from_events(events, flow_df)
+        rows = wy[wy["WaterYear"] == 2000]
+        assert len(rows) == 1
+        assert rows["Type"].iloc[0] == "Spring"
+
+    def test_distinct_spring_and_annual_events_give_two_rows(self):
+        """
+        A fall peak (Annual) and separate spring peak in the same WY → two rows.
+        WY 2001 = Oct 2000 – Sep 2001.
+        """
+        events = self._make_events([
+            ("2000-11-01", "2000-11-20", "2000-11-10", 80.0, 2e6),  # large fall → Annual
+            ("2001-05-01", "2001-05-20", "2001-05-10", 40.0, 1e6),  # smaller spring → Spring
+        ])
+        flow_df = self._make_flow_df("1999-10-01", "2002-09-30")
+        wy = fa._summarize_wy_from_events(events, flow_df)
+        rows = wy[wy["WaterYear"] == 2001]
+        assert len(rows) == 2
+        assert set(rows["Type"]) == {"Spring", "Annual"}
+
+    def test_spring_is_annual_peak_gives_one_row(self):
+        """If the highest annual event is itself a spring event, include only once."""
+        events = self._make_events([
+            ("2000-04-01", "2000-04-20", "2000-04-10", 90.0, 3e6),  # spring = annual
+        ])
+        flow_df = self._make_flow_df("1999-10-01", "2001-09-30")
+        wy = fa._summarize_wy_from_events(events, flow_df)
+        rows = wy[wy["WaterYear"] == 2000]
+        assert len(rows) == 1
+
+    def test_fallback_for_year_with_no_events(self):
+        """Years that have no detected events still appear via daily-max fallback."""
+        empty_events = pd.DataFrame(
+            columns=["start_date", "end_date", "peak_date", "PeakFlow", "total_volume_m3"]
+        )
+        flow_df = self._make_flow_df("1999-10-01", "2001-09-30", baseline=5.0)
+        wy = fa._summarize_wy_from_events(empty_events, flow_df)
+        assert 2000 in wy["WaterYear"].values
+        assert 2001 in wy["WaterYear"].values
+
+    def test_fallback_row_type_matches_peak_month(self):
+        """Fallback row gets 'Spring' if daily max is in Mar-Jun, else 'Annual'."""
+        # Build a daily series where the only non-baseline day is in June (spring)
+        dates = pd.date_range("1999-10-01", "2001-09-30", freq="D")
+        values = np.ones(len(dates)) * 1.0
+        df = pd.DataFrame({"Date": dates, "Value": values})
+        # Inject a single-day high in June 2000 (WY 2000, spring)
+        df.loc[df["Date"] == pd.Timestamp("2000-06-15"), "Value"] = 99.0
+        empty_events = pd.DataFrame(
+            columns=["start_date", "end_date", "peak_date", "PeakFlow", "total_volume_m3"]
+        )
+        wy = fa._summarize_wy_from_events(empty_events, df)
+        row = wy[wy["WaterYear"] == 2000]
+        assert len(row) == 1
+        assert row["Type"].iloc[0] == "Spring"
+
+
+# ── export_wy_summary: events.csv output ─────────────────────────────────────
+
+class TestExportWySummaryEvents:
+    def test_events_csv_saved(self, tmp_path):
+        import matplotlib
+        matplotlib.use("Agg")
+        p = _make_flow_csv(tmp_path)
+        out = tmp_path / "out"
+        fa.export_wy_summary(data_path=p, output_dir=out, n_bootstrap=50)
+        assert (out / "events.csv").exists()
+
+    def test_events_csv_has_expected_columns(self, tmp_path):
+        import matplotlib
+        matplotlib.use("Agg")
+        p = _make_flow_csv(tmp_path)
+        out = tmp_path / "out"
+        fa.export_wy_summary(data_path=p, output_dir=out, n_bootstrap=50)
+        events_df = pd.read_csv(out / "events.csv")
+        for col in ("start_date", "end_date", "peak_date", "PeakFlow", "total_volume_m3"):
+            assert col in events_df.columns, f"Missing column: {col}"

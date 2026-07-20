@@ -22,6 +22,7 @@ the R-comparison regression suite.
 from __future__ import annotations
 
 import logging
+import pathlib
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
@@ -55,8 +56,11 @@ _PLOT_NEP = np.array([
 ])
 
 # Standard return periods used in the recurrence table
-_STANDARD_RPS = np.array([2, 5, 10, 20, 50, 100, 200, 500])
+_STANDARD_RPS = np.array([2, 5, 10, 20, 50])
 _STANDARD_NEP = 1.0 - 1.0 / _STANDARD_RPS
+
+# Months considered "spring" for peak-flow classification (March–June)
+_SPRING_MONTHS = frozenset({3, 4, 5, 6})
 
 
 # ---------------------------------------------------------------------------
@@ -145,6 +149,7 @@ def _load_flow_data(
     DataFrame with columns ``Date`` (datetime) and ``Value`` (float).
     """
     df = pd.read_csv(filepath, header=0, skiprows=1)
+    df.columns = df.columns.str.strip()
     df = df[df["PARAM"] == param_id][["ID", "Date", "Value"]].copy()
 
     # --- Station ID resolution ---
@@ -174,6 +179,218 @@ def _load_flow_data(
         df = df[df["Date"].dt.year <= end_year]
     df = df.dropna(subset=["Value"]).reset_index(drop=True)
     return df
+
+
+# ---------------------------------------------------------------------------
+# Section 1b: Flow event detection (Python port of hydroEvents::eventMinima)
+# ---------------------------------------------------------------------------
+
+
+def _local_min(data: np.ndarray) -> np.ndarray:
+    """Indices of local minima in *data* (0-based).
+
+    Mirrors hydroEvents::localMin (R package):
+    - Repeated values → first index of each run.
+    - Trailing boundary counts as a minimum if the series is still falling.
+    - Leading boundary counts as a minimum only when the first value is not a
+      repeat AND the series rises away from it.
+    """
+    x = np.asarray(data, dtype=float)
+    n = len(x)
+    if n < 2:
+        return np.array([], dtype=int)
+
+    # Collapse consecutive duplicates → first occurrence
+    keep = np.ones(n, dtype=bool)
+    keep[1:] = x[1:] != x[:-1]
+    idx_unique = np.flatnonzero(keep)
+    x_unique = x[idx_unique]
+    m = len(x_unique)
+
+    minima_positions: list[int] = []
+
+    # Interior: strictly lower than both neighbours
+    for k in range(1, m - 1):
+        if x_unique[k - 1] > x_unique[k] < x_unique[k + 1]:
+            minima_positions.append(k)
+
+    # Trailing boundary
+    if m >= 2 and x_unique[-1] < x_unique[-2]:
+        minima_positions.append(m - 1)
+
+    # Leading boundary: only if not a repeated first value
+    if m >= 2 and x[0] != x[1] and x_unique[0] < x_unique[1]:
+        minima_positions.insert(0, 0)
+
+    minima_positions = sorted(set(minima_positions))
+    return idx_unique[minima_positions]
+
+
+def _calc_stats(
+    srt: np.ndarray,
+    end: np.ndarray,
+    data: np.ndarray,
+    f_vec: tuple = ("which.max", "max", "sum"),
+) -> pd.DataFrame:
+    """Per-event statistics for the subset of *data* in [srt, end] (inclusive).
+
+    ``which.max`` is an absolute index into *data*, not relative to the window.
+    """
+    x = np.asarray(data, dtype=float)
+    rows = []
+    for s, e in zip(srt, end):
+        window = x[s : e + 1]
+        row: dict = {}
+        for f in f_vec:
+            if f == "which.max":
+                row["which.max"] = s + int(np.argmax(window))
+            elif f == "max":
+                row["max"] = float(np.max(window))
+            elif f == "min":
+                row["min"] = float(np.min(window))
+            elif f == "sum":
+                row["sum"] = float(np.sum(window))
+            else:
+                raise ValueError(f"Unsupported stat: {f}")
+        rows.append(row)
+    return pd.DataFrame(rows, columns=list(f_vec))
+
+
+def _event_minima(
+    data,
+    delta_y: float = 20,
+    delta_x: float = 5,
+    threshold: float = -1,
+    out_style: str = "summary",
+):
+    """Identify flow events based on local minima (Python port of hydroEvents::eventMinima).
+
+    Events are bounded by pairs of local minima satisfying:
+    - ``(x2 - x1) > delta_x``  (far enough apart in time)
+    - ``(y2 - y1) < delta_y``  (close enough in flow value)
+
+    Parameters
+    ----------
+    data : array-like
+    delta_y : float
+        Maximum trough-value difference.
+    delta_x : float
+        Minimum index gap between bounding troughs.
+    threshold : float
+        Values at or below this level are trimmed from event edges and events
+        whose max is below this level are dropped.  Negative → disabled.
+    out_style : {"summary", "none"}
+        "summary" adds which.max / max / sum columns.
+
+    Returns
+    -------
+    pandas.DataFrame or None
+    """
+    x = np.asarray(data, dtype=float)
+    minima = _local_min(x)
+    n_minima = len(minima)
+
+    srt_index: list[int] = []
+    end_index: list[int] = []
+
+    i, j = 0, 1
+    while j < n_minima:
+        x1, x2 = minima[i], minima[j]
+        y1, y2 = x[x1], x[x2]
+
+        if (x2 - x1) > delta_x and (y2 - y1) < delta_y:
+            srt_index.append(x1)
+            end_index.append(x2)
+            i = j
+            j = i + 1
+        else:
+            j += 1
+
+    srt_arr = np.array(srt_index, dtype=int)
+    end_arr = np.array(end_index, dtype=int)
+
+    # Drop events whose max is below threshold
+    if threshold > 0 and len(srt_arr) > 0:
+        maxima = _calc_stats(srt_arr, end_arr, x, f_vec=("max",))["max"].to_numpy()
+        keep = maxima >= threshold
+        srt_arr = srt_arr[keep]
+        end_arr = end_arr[keep]
+
+    n_events = len(srt_arr)
+    if n_events == 0:
+        return None
+
+    # Trim leading/trailing runs at-or-below threshold from each event
+    if threshold >= 0:
+        for i in range(n_events):
+            event_data = x[srt_arr[i] : end_arr[i] + 1]
+            below = event_data <= threshold
+
+            if below[0]:
+                run_len = len(below) if below.all() else int(np.argmax(~below))
+                srt_arr[i] += run_len
+
+            if below[-1]:
+                run_len = len(below) if below.all() else int(np.argmax(~below[::-1]))
+                end_arr[i] -= run_len
+
+    if out_style == "summary":
+        stats = _calc_stats(srt_arr, end_arr, x, f_vec=("which.max", "max", "sum"))
+        return pd.concat(
+            [pd.DataFrame({"srt": srt_arr, "end": end_arr}), stats], axis=1
+        )
+    else:
+        return pd.DataFrame({"srt": srt_arr, "end": end_arr})
+
+
+def _identify_flow_events(
+    df: pd.DataFrame,
+    delta_y: float = 20,
+    delta_x: int = 5,
+    threshold: float = 0,
+) -> pd.DataFrame:
+    """Identify discrete flow events in daily flow data.
+
+    Wraps :func:`_event_minima` and enriches the result with date and volume
+    columns derived from *df*.
+
+    Parameters
+    ----------
+    df : DataFrame with columns ``Date`` (datetime) and ``Value`` (m³/s).
+    delta_y : trough-value difference threshold.
+    delta_x : minimum event length in days.
+    threshold : flow threshold; events below this are dropped / trimmed.
+
+    Returns
+    -------
+    DataFrame with columns:
+        ``start_date``, ``end_date``, ``peak_date``, ``PeakFlow``,
+        ``total_volume_m3``.
+    Returns an empty DataFrame (not None) when no events are detected.
+    """
+    _EMPTY = pd.DataFrame(
+        columns=["start_date", "end_date", "peak_date", "PeakFlow", "total_volume_m3"]
+    )
+    raw = _event_minima(
+        df["Value"].to_numpy(),
+        delta_y=delta_y,
+        delta_x=delta_x,
+        threshold=threshold,
+        out_style="summary",
+    )
+    if raw is None:
+        return _EMPTY
+
+    events = raw.copy()
+    dates = df["Date"].reset_index(drop=True)
+    events["start_date"] = dates.iloc[events["srt"]].values
+    events["end_date"] = dates.iloc[events["end"]].values
+    events["peak_date"] = dates.iloc[events["which.max"]].values
+    events["PeakFlow"] = events["max"]
+    events["total_volume_m3"] = events["sum"] * 86_400  # daily m³/s → m³
+
+    events.drop(columns=["srt", "end", "which.max", "max", "sum"], inplace=True)
+    return events.reset_index(drop=True)
 
 
 # ---------------------------------------------------------------------------
@@ -216,6 +433,104 @@ def _summarize_by_water_year(df: pd.DataFrame, origin_month: int = 10) -> pd.Dat
                 "Type": flow_type,
             }
         )
+    return pd.DataFrame(rows)
+
+
+def _summarize_wy_from_events(
+    events_df: pd.DataFrame,
+    flow_df: pd.DataFrame,
+    origin_month: int = 10,
+) -> pd.DataFrame:
+    """Build a water-year summary from detected flow events.
+
+    For each water year:
+
+    - Finds the **annual peak event** (highest ``PeakFlow``, any date).
+    - Finds the **spring peak event** (highest ``PeakFlow`` with ``peak_date``
+      in March–June).
+    - If they are the **same event**, includes it once (labelled "Spring" if
+      the peak month is Mar–Jun, otherwise "Annual").
+    - If they are **different events**, includes **both**.
+    - If **no events** fall in the water year, falls back to the daily-maximum
+      approach (one row, labelled by peak month).
+
+    Parameters
+    ----------
+    events_df : DataFrame from :func:`_identify_flow_events`.
+    flow_df : Cleaned daily flow DataFrame (``Date``, ``Value``); used for
+        the fallback year calculation and fallback ``TotalVolume``.
+    origin_month : First month of the water year (default 10).
+
+    Returns
+    -------
+    DataFrame with columns:
+        ``WaterYear``, ``PeakFlowDate``, ``PeakFlow``, ``TotalVolume``, ``Type``.
+    """
+    flow_work = flow_df.copy()
+    flow_work["WaterYear"] = _calculate_water_year(flow_work["Date"], origin_month)
+    all_wys = sorted(flow_work["WaterYear"].unique())
+
+    # Assign a water year to every event based on peak_date
+    ev = events_df.copy()
+    if not ev.empty:
+        ev["WaterYear"] = _calculate_water_year(
+            pd.Series(pd.to_datetime(ev["peak_date"])), origin_month
+        ).values
+
+    rows: list[dict] = []
+    for wy in all_wys:
+        wy_events = pd.DataFrame() if ev.empty else ev[ev["WaterYear"] == wy]
+
+        if wy_events.empty:
+            # Fallback: daily maximum for this water year
+            wy_daily = flow_work[flow_work["WaterYear"] == wy]
+            peak_idx = wy_daily["Value"].idxmax()
+            peak_flow = float(wy_daily.loc[peak_idx, "Value"])
+            peak_date = wy_daily.loc[peak_idx, "Date"]
+            total_vol = float((wy_daily["Value"] * 86_400).sum())
+            flow_type = "Spring" if peak_date.month in _SPRING_MONTHS else "Annual"
+            rows.append({
+                "WaterYear": wy,
+                "PeakFlowDate": peak_date,
+                "PeakFlow": peak_flow,
+                "TotalVolume": total_vol,
+                "Type": flow_type,
+                "EventStart": wy_daily["Date"].min(),
+                "EventEnd": wy_daily["Date"].max(),
+            })
+            continue
+        
+        # Annual peak: highest PeakFlow regardless of date
+        annual_row = wy_events.loc[wy_events["PeakFlow"].idxmax()]
+        annual_is_spring = pd.to_datetime(annual_row["peak_date"]).month in _SPRING_MONTHS
+
+        rows.append({
+            "WaterYear": wy,
+            "PeakFlowDate": pd.to_datetime(annual_row["peak_date"]),
+            "PeakFlow": float(annual_row["PeakFlow"]),
+            "TotalVolume": float(annual_row["total_volume_m3"]),
+            "Type": "Spring" if annual_is_spring else "Annual",
+            "EventStart": pd.to_datetime(annual_row["start_date"]),
+            "EventEnd": pd.to_datetime(annual_row["end_date"]),
+        })
+
+        # Spring peak: highest PeakFlow in Mar–Jun, only if distinct from annual
+        if not annual_is_spring:
+            spring_events = wy_events[
+                pd.to_datetime(wy_events["peak_date"]).dt.month.isin(_SPRING_MONTHS)
+            ]
+            if not spring_events.empty:
+                spring_row = spring_events.loc[spring_events["PeakFlow"].idxmax()]
+                rows.append({
+                    "WaterYear": wy,
+                    "PeakFlowDate": pd.to_datetime(spring_row["peak_date"]),
+                    "PeakFlow": float(spring_row["PeakFlow"]),
+                    "TotalVolume": float(spring_row["total_volume_m3"]),
+                    "Type": "Spring",
+                    "EventStart": pd.to_datetime(spring_row["start_date"]),
+                    "EventEnd": pd.to_datetime(spring_row["end_date"]),
+                })
+
     return pd.DataFrame(rows)
 
 
@@ -683,18 +998,27 @@ def export_wy_summary(
     ci: float = 0.90,
     seed: int | None = None,
     wsc_id: str | None = None,
+    event_delta_y: float = 20,
+    event_delta_x: int = 5,
+    event_threshold: float = 0,
 ) -> tuple[FreqAnalysisResult, pd.DataFrame]:
     """Load daily flow data and produce a water-year LP3 frequency analysis.
 
     Workflow (mirrors ``local/flood_freq_report.ipynb``):
 
     1. Load WSC-style daily flow CSV.
-    2. Summarise by water year (peak flow, total volume, flow type).
-    3. Run MGBT to identify Potentially Influential Low Floods (PILFs).
+    1b. Identify discrete flow events using :func:`_event_minima`; save
+        ``events.csv`` to *output_dir*.
+    2. Summarise by water year from detected events (peak flow, total volume,
+       flow type).  Years with no detected events fall back to the daily
+       maximum.  Years with distinct spring and annual peak events contribute
+       two rows each.
+    3. Run MGBT on annual peaks to identify Potentially Influential Low Floods
+       (PILFs).
     4. Fit Log-Pearson III via L-moments to the non-PILF annual series.
-    5. Estimate return period for *every* water year (incl. PILFs).
+    5. Estimate return period for *every* row (incl. spring rows and PILFs).
     6. Bootstrap 90 % confidence intervals for the frequency curve.
-    7. Compute standard design-flow quantiles (2, 5, 10, … 500 yr).
+    7. Compute standard design-flow quantiles (2, 5, 10, … yr).
     8. Run Anderson-Darling and Cramér-von Mises goodness-of-fit tests.
     9. Save ``wy_summary.csv`` to *output_dir*.
 
@@ -721,6 +1045,12 @@ def export_wy_summary(
     wsc_id:
         WSC station ID to extract from the input CSV.  If ``None``, the
         file must contain exactly one distinct station ID.
+    event_delta_y:
+        Maximum trough-value difference for event separation (default 20).
+    event_delta_x:
+        Minimum event length in days (default 5).
+    event_threshold:
+        Flow threshold; events below this are dropped / trimmed (default 0).
 
     Returns
     -------
@@ -732,6 +1062,10 @@ def export_wy_summary(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # Catch incorrect input types early to avoid confusing downstream errors
+    if type(data_path) is not str and type(data_path) is not Path and type(data_path) is not pathlib.WindowsPath:
+        raise TypeError(f"Wrong input format: data_path must be str, Path, or WindowsPath, got {type(data_path)}")
+
     label = watershed_name or str(data_path)
     logger.info("Starting frequency analysis for '%s'", label)
 
@@ -741,25 +1075,43 @@ def export_wy_summary(
                               wsc_id=wsc_id)
     logger.info("Loaded %d daily flow records", len(flow_df))
 
-    # 2. Water-year summary
-    wy = _summarize_by_water_year(flow_df, origin_month=origin_month)
-    logger.info("Water-year summary: %d years", len(wy))
+    # 1b. Identify flow events
+    logger.info(
+        "Identifying flow events (delta_y=%s, delta_x=%s, threshold=%s)",
+        event_delta_y, event_delta_x, event_threshold,
+    )
+    events_df = _identify_flow_events(
+        flow_df, delta_y=event_delta_y, delta_x=event_delta_x,
+        threshold=event_threshold,
+    )
+    events_df.to_csv(output_dir / "events.csv", index=False)
+    logger.info("Identified %d flow events → %s", len(events_df), output_dir / "events.csv")
 
-    # 3. MGBT
-    mgbt_thresh = _mgbt(wy["PeakFlow"].values)
-    wy["IsPILF"] = wy["PeakFlow"] < mgbt_thresh
-    n_pilf = int(wy["IsPILF"].sum())
-    logger.info("MGBT threshold: %.4f — %d PILF(s) identified", mgbt_thresh, n_pilf)
+    # 2. Water-year summary (event-based; fallback to daily max when no events)
+    wy = _summarize_wy_from_events(events_df, flow_df, origin_month=origin_month)
+    logger.info(
+        "Water-year summary: %d rows across %d water years",
+        len(wy), wy["WaterYear"].nunique(),
+    )
 
-    # 4. Fit LP3 on non-PILF series
-    annual_series = wy.loc[~wy["IsPILF"], "PeakFlow"].values
+    # 3. MGBT — operate on one annual peak per year
+    annual_peaks_df = wy.loc[wy.groupby("WaterYear")["PeakFlow"].idxmax()]
+    mgbt_thresh = _mgbt(annual_peaks_df["PeakFlow"].values)
+    pilf_mask = annual_peaks_df["PeakFlow"] < mgbt_thresh
+    pilf_years = set(annual_peaks_df.loc[pilf_mask, "WaterYear"])
+    wy["IsPILF"] = wy["WaterYear"].isin(pilf_years)
+    n_pilf = int(len(pilf_years))
+    logger.info("MGBT threshold: %.4f — %d PILF year(s) identified", mgbt_thresh, n_pilf)
+
+    # 4. Fit LP3 on non-PILF annual peaks (one per year, never double-counting)
+    non_pilf_annual = annual_peaks_df[~pilf_mask]
+    annual_series = non_pilf_annual["PeakFlow"].values
     if len(annual_series) < 4:
-        # Fall back to full series if MGBT removed too many records
         logger.warning(
-            "MGBT removed too many records (%d remaining); falling back to full series",
+            "MGBT removed too many records (%d remaining); falling back to full annual series",
             len(annual_series),
         )
-        annual_series = wy["PeakFlow"].values
+        annual_series = annual_peaks_df["PeakFlow"].values
     lp3_params = _fit_lp3(annual_series)
     logger.info("LP3 fit: loc=%.4f, scale=%.4f, skew=%.4f",
                 lp3_params["loc"], lp3_params["scale"], lp3_params["skew"])
