@@ -40,3 +40,5 @@ htmlcov/
 # Local tooling config
 .gh_config/pwa_dev_mac.yml
 .github/agents/
+
+debug.log
