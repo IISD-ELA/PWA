@@ -17,14 +17,14 @@ The four PWA packages live across three GitHub repos. The `-b` flag below pins e
 ```bash
 git clone -b refactor/split-god-file https://github.com/IISD-ELA/PWA-hydro-conditioning-tools.git
 git clone -b refactor/extract-pwa-raven https://github.com/IISD-ELA/PWA.git
-git clone -b refactor/migrate-to-pwa-config https://github.com/IISD-ELA/PWA-hydro-conditioning-main.git
+git clone -b refactor/migrate-to-pwa-config https://github.com/IISD-ELA/PWA-modeling.git
 ```
 
 After cloning, your working directory should look like:
 ```
 your-workspace/
 ├── PWA/                              # contains pwa_raven and pwa_calibration
-├── PWA-hydro-conditioning-main/      # the orchestrator (this is what you install at the end)
+├── PWA-modeling/      # the orchestrator (this is what you install at the end)
 └── PWA-hydro-conditioning-tools/     # contains pwa-tools (Step 0)
 ```
 
@@ -57,7 +57,7 @@ gdalinfo --version    # should print "GDAL 3.x.x, released YYYY/MM/DD"
 pip install -e ./PWA-hydro-conditioning-tools
 pip install -e ./PWA/pwa_raven
 pip install -e ./PWA/pwa_calibration
-pip install -e ./PWA-hydro-conditioning-main
+pip install -e ./PWA-modeling
 ```
 
 The last line installs the **orchestrator package** (`pwa`), which depends on the previous three. Installing it registers eight CLI commands on PATH (`pwa-hydrocondition`, `pwa-nc-processing`, `pwa-raven-inputs`, `pwa-calibrate` plus `pwa-init-*` variants) and exposes the umbrella `import pwa` namespace for notebook users.
