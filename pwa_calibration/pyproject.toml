@@ -5,6 +5,15 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "pwa-calibration"
 version = "0.1.0"
+authors = [
+    {name = "IISD Experimental Lakes Area", email = "eladata@iisd.net"},
+    {name = "Thomas Saleh", email = "tsaleh@iisd-ela.org"}
+]
+maintainers = [
+    {name = "IISD Experimental Lakes Area", email = "eladata@iisd.net"},
+    {name = "Thomas Saleh", email = "tsaleh@iisd-ela.org"},
+    {name = "Idil Yaktubay", email = "iyaktubay@iisd-ela.org"}
+]
 description = "SPOTPY-driven calibration of Raven hydrological models for PWA"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -28,6 +37,11 @@ dependencies = [
 # Raven binary is NOT a pip dependency. Install from:
 #   http://raven.uwaterloo.ca/Downloads.html
 # Place on PATH as 'Raven' (Linux/macOS) or 'Raven.exe' (Windows).
+
+[project.urls]
+Homepage = "https://www.iisd.org/ela/"
+Organization = "https://www.iisd.org/"
+Repository = "https://github.com/IISD-ELA/PWA"
 
 [project.optional-dependencies]
 mpi = ["mpi4py>=3.1"]
