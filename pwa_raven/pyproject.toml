@@ -8,7 +8,8 @@ version = "0.2.2"
 requires-python = ">=3.12,<3.13"
 authors = [
     {name = "IISD Experimental Lakes Area", email = "eladata@iisd.net"},
-    {name = "Thomas Saleh", email = "tsaleh@iisd-ela.org"}
+    {name = "Thomas Saleh", email = "tsaleh@iisd-ela.org"},
+    {name = "Idil Yaktubay", email = "iyaktubay@iisd-ela.org"}
 ]
 maintainers = [
     {name = "IISD Experimental Lakes Area", email = "eladata@iisd.net"},
