@@ -17,7 +17,6 @@ maintainers = [
 ]
 description = "Raven hydrological model setup and input generation for PWA - with frequency analysis"
 readme = "README.md"
-requires-python = ">=3.9"
 dependencies = [
     "numpy>=1.24",
     "pandas>=2.0",
