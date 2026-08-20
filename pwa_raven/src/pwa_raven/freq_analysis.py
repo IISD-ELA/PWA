@@ -1063,7 +1063,9 @@ def export_wy_summary(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Catch incorrect input types early to avoid confusing downstream errors
-    if type(data_path) is not str and type(data_path) is not Path and type(data_path) is not pathlib.WindowsPath:
+    path_formats = (str, Path, pathlib.WindowsPath, pathlib.PosixPath)
+
+    if not isinstance(data_path, path_formats):
         raise TypeError(f"Wrong input format: data_path must be str, Path, or WindowsPath, got {type(data_path)}")
 
     label = watershed_name or str(data_path)
