@@ -4,9 +4,16 @@ A comprehensive hydrological modeling system for Canadian prairie watersheds usi
 
 For more information on PWA see [IISD - Prairie Watershed Analytics](https://www.iisd.org/projects/prairie-watershed-analytics)
 
+If you are interested in using the PWA python package, but require training or support, or would like to provide feedback on your recent use of the PWA package, please contact us at - tsaleh@iisd-ela.org or eladata@iisd-ela.org
+Our team also provides custom data or model requests for a one-time service fee. Please contact us for a quote or fill out the following forms: 
+- [Wetland / Ponding Maps and Statistics](https://forms.cloud.microsoft/r/EwazCXu53i)
+- [Calibrated River Flow / Routing Model](https://forms.cloud.microsoft/Pages/ResponsePage.aspx?id=xg6iAdnPHEezS-3DYWHDzp3P2jLZBHVKprV-NWj3p8xUQ0wyM1pET0JVUDREUU8xVVJGNklHSlg3US4u)
+
+Please review the [wetland mapping disclaimer](docs/wetlands_disclaimer.pdf) and the flow modeling disclaimer to understand the limitations of PWA outputs. We recommend sharing these disclaimers with any third-party users of the data generated with this python package. 
+
 ## In this file
 
-This ReadMe contains: \
+This ReadMe contains: 
 - Module descriptions
 - Quick start instructions including:
    - Installation
