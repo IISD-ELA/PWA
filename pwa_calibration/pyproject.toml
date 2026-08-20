@@ -5,9 +5,19 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "pwa-calibration"
 version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+authors = [
+    {name = "IISD Experimental Lakes Area", email = "eladata@iisd.net"},
+    {name = "Thomas Saleh", email = "tsaleh@iisd-ela.org"},
+    {name = "Idil Yaktubay", email = "iyaktubay@iisd-ela.org"}
+]
+maintainers = [
+    {name = "IISD Experimental Lakes Area", email = "eladata@iisd.net"},
+    {name = "Thomas Saleh", email = "tsaleh@iisd-ela.org"},
+    {name = "Idil Yaktubay", email = "iyaktubay@iisd-ela.org"}
+]
 description = "SPOTPY-driven calibration of Raven hydrological models for PWA"
 readme = "README.md"
-requires-python = ">=3.9"
 dependencies = [
     "numpy>=1.24",
     "pandas>=2.0",
@@ -16,7 +26,7 @@ dependencies = [
     "netCDF4>=1.6",
     "pyyaml>=6.0",
     "tqdm>=4.65",
-    "pwa-raven",
+    "pwa-raven>=0.2.2,<1",
 ]
 # mpi4py is required for parallel calibration but is left as an optional
 # extra because it needs a system MPI install (OpenMPI / MPICH) which pip
@@ -28,6 +38,11 @@ dependencies = [
 # Raven binary is NOT a pip dependency. Install from:
 #   http://raven.uwaterloo.ca/Downloads.html
 # Place on PATH as 'Raven' (Linux/macOS) or 'Raven.exe' (Windows).
+
+[project.urls]
+Homepage = "https://www.iisd.org/ela/"
+Organization = "https://www.iisd.org/"
+Repository = "https://github.com/IISD-ELA/PWA"
 
 [project.optional-dependencies]
 mpi = ["mpi4py>=3.1"]

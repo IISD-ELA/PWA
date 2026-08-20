@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   pwa-raven:
-    name: pwa-raven unit tests (py3.11)
+    name: pwa-raven unit tests (py3.12)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -22,7 +22,7 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
           cache: pip
           cache-dependency-path: pwa_raven/pyproject.toml
 
@@ -47,14 +47,14 @@ jobs:
           if-no-files-found: ignore
 
   pwa-calibration:
-    name: pwa-calibration unit tests (py3.11)
+    name: pwa-calibration unit tests (py3.12)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
           cache: pip
           cache-dependency-path: pwa_calibration/pyproject.toml
 
