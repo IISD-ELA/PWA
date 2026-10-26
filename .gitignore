@@ -29,6 +29,7 @@ archive/
 src/raven/
 local/
 _notebooks/watershed_nbs/
+infra/
 
 # Python build/test artifacts
 *.egg-info/
@@ -41,5 +42,6 @@ htmlcov/
 # Local tooling config
 .gh_config/pwa_dev_mac.yml
 .github/agents/
+
 
 debug.log
